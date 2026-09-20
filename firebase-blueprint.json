@@ -1,0 +1,30 @@
+{
+  "entities": {
+    "LMSSection": {
+      "title": "LMSSection",
+      "description": "A partitioned section of LMS data (users, classes, materials, tasks, attendance, grades, quiz, settings) for real-time synchronization across laptops and mobile devices.",
+      "type": "object",
+      "properties": {
+        "section": {
+          "type": "string",
+          "description": "The unique section identifier (e.g., users, materi, tugas, presensi, quiz)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of the last update"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Identifier or role of the user who made the change"
+        }
+      },
+      "required": ["section", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/lms_records/{section}": {
+      "schema": "LMSSection",
+      "description": "Collection storing real-time synchronized LMS modules and records for school users on all devices."
+    }
+  }
+}
