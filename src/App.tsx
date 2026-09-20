@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { dataStorage, LMSDatabase, FirestoreSyncStatus } from './services/dataStorage';
 import { User, UserRole } from './types';
 import { Navbar } from './components/Navbar';
@@ -80,6 +80,7 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<FirestoreSyncStatus>(dataStorage.getSyncStatus());
+  const prevManifestUrlRef = useRef<string | null>(null);
 
   // Pembersihan data sampah (soft-deleted items) di Firestore yang > 30 hari secara otomatis
   useEffect(() => {
@@ -115,10 +116,10 @@ export default function App() {
     };
   }, []);
 
-  // Dynamically update favicon and app icons when school logo is customized or defaults to NET PJOK
+  // Dynamically update favicon, apple-touch-icon, and Web App Manifest when school logo is customized
   useEffect(() => {
     const customLogo = db.settings?.logoSekolah;
-    const targetIcon = customLogo && customLogo.trim() !== '' ? customLogo : '/favicon.svg';
+    const targetIcon = customLogo && customLogo.trim() !== '' ? customLogo : '/pwa-192x192.png';
     const targetApple = customLogo && customLogo.trim() !== '' ? customLogo : '/apple-touch-icon.png';
 
     const iconElements = document.querySelectorAll<HTMLLinkElement>("link[rel*='icon']");
@@ -130,7 +131,66 @@ export default function App() {
     if (appleIcon) {
       appleIcon.href = targetApple;
     }
-  }, [db.settings?.logoSekolah]);
+
+    // Update manifest dynamically so browser PWA install prompt always captures the official logo
+    try {
+      const activeLogo = customLogo && customLogo.trim() !== '' ? customLogo : '/pwa-192x192.png';
+      const dynamicManifest = {
+        id: '/',
+        name: db.settings?.namaSekolah ? `NET PJOK - ${db.settings.namaSekolah}` : 'NET PJOK - SMA Negeri 1 Tejakula (SMANSAKA)',
+        short_name: 'NET PJOK',
+        description: 'Aplikasi LMS PJOK SMA Negeri 1 Tejakula (SMANSAKA) - Pendidikan Jasmani, Olahraga, dan Kesehatan',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'any',
+        theme_color: '#2563eb',
+        background_color: '#0f172a',
+        categories: ['education', 'sports'],
+        icons: [
+          {
+            src: activeLogo,
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: activeLogo,
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+          {
+            src: targetApple,
+            sizes: '180x180',
+            type: 'image/png',
+            purpose: 'any',
+          },
+        ],
+      };
+
+      const blob = new Blob([JSON.stringify(dynamicManifest)], { type: 'application/manifest+json' });
+      const newManifestUrl = URL.createObjectURL(blob);
+
+      let manifestEl = document.querySelector<HTMLLinkElement>("link[rel='manifest']");
+      if (manifestEl) {
+        manifestEl.href = newManifestUrl;
+      }
+
+      if (prevManifestUrlRef.current) {
+        URL.revokeObjectURL(prevManifestUrlRef.current);
+      }
+      prevManifestUrlRef.current = newManifestUrl;
+    } catch (err) {
+      console.warn('Gagal memperbarui manifest dinamis:', err);
+    }
+  }, [db.settings?.logoSekolah, db.settings?.namaSekolah]);
 
   // Sync deadline notifications for student (< 24 hours alerts)
   useEffect(() => {

@@ -273,6 +273,15 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'b
               )}
             </div>
 
+            {/* Note about home screen icon cache */}
+            <div className="mt-3.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200 text-[11px] leading-relaxed">
+              <span className="font-bold">💡 Catatan Jika Logo Belum Berubah:</span>
+              <p className="mt-0.5 text-slate-600 dark:text-slate-300">
+                Jika Anda sudah menginstal aplikasi sebelumnya dan logo di layar HP masih menggunakan ikon lama, 
+                cukup <strong>hapus (uninstall) ikon lama tersebut</strong> dari layar utama HP, lalu lakukan instalasi ulang dari sini.
+              </p>
+            </div>
+
             <div className="mt-5">
               <button
                 onClick={() => setShowGuide(false)}

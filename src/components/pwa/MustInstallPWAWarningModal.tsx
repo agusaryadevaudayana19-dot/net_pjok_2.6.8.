@@ -281,6 +281,22 @@ export const MustInstallPWAWarningModal: React.FC<MustInstallPWAWarningModalProp
           )}
         </div>
 
+        {/* Info note about icon cache / logo update */}
+        <div className="mt-3.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs leading-relaxed">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-400 font-bold text-sm shrink-0">💡</span>
+            <div>
+              <p className="font-bold text-amber-300">
+                Mengapa ikon di HP masih berbeda atau belum berubah?
+              </p>
+              <p className="mt-0.5 text-slate-300 text-[11px]">
+                Jika aplikasi sudah terlanjur diinstal sebelumnya, sistem operasi HP mengunci ikon lama di memori launcher. 
+                Cukup <strong>hapus / uninstall ikon NET PJOK yang lama</strong> dari layar utama HP Anda, lalu pasang kembali dari halaman ini agar logo resmi sekolah langsung muncul dengan benar.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Verification and Action Buttons */}
         <div className="mt-4 space-y-2 pt-3 border-t border-slate-800">
           <button
