@@ -23,7 +23,8 @@ import {
 import { Tugas, PengumpulanTugas, User } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { InAppMediaModal } from '../shared/InAppMediaModal';
-import { parseDeadlineToDate, formatTimeRemaining } from '../../utils/deadlineNotification';
+import { parseDeadlineToDate, formatTimeRemaining, formatDeadlineIndo } from '../../utils/deadlineNotification';
+import { ModalKonfirmasiKumpulTugas } from './ModalKonfirmasiKumpulTugas';
 
 interface MuridTugasProps {
   db: LMSDatabase;
@@ -83,7 +84,33 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
   const [catatan, setCatatan] = useState('');
   const [pasteWarning, setPasteWarning] = useState(false);
 
+  // Modal Konfirmasi & Notifikasi Pencegahan Salah Kirim
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [submitSuccessBanner, setSubmitSuccessBanner] = useState<{
+    show: boolean;
+    message: string;
+    tugasJudul: string;
+  } | null>(null);
+
   const mySubmissions = db.pengumpulanTugas.filter((p) => p.muridId === currentUser.id);
+
+  // Kalkulasi Tenggat Waktu untuk Tugas yang sedang dibuka di lembar pengumpulan
+  const activeDeadlinDate = activeUploadTugas
+    ? parseDeadlineToDate(activeUploadTugas.deadline)
+    : null;
+  const activeDiffMs = activeDeadlinDate ? activeDeadlinDate.getTime() - Date.now() : null;
+  const isActiveOverdue = activeDiffMs !== null && activeDiffMs <= 0;
+  const isActiveUrgent24H =
+    activeDiffMs !== null && activeDiffMs > 0 && activeDiffMs <= 24 * 60 * 60 * 1000;
+  const isActiveNearDeadline = activeDiffMs !== null && activeDiffMs <= 48 * 60 * 60 * 1000;
+  const activeTimeRemaining = activeDeadlinDate
+    ? formatTimeRemaining(activeDeadlinDate.getTime() - Date.now())
+    : null;
+  const formattedActiveDeadline = activeDeadlinDate
+    ? formatDeadlineIndo(activeDeadlinDate)
+    : activeUploadTugas?.deadline || '-';
 
   const getTugasStatus = (tugasId: string) => {
     const submission = mySubmissions.find((p) => p.tugasId === tugasId);
@@ -104,6 +131,8 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     const existing = mySubmissions.find((p) => p.tugasId === tugas.id);
     setActiveUploadTugas(tugas);
     setPasteWarning(false);
+    setValidationError(null);
+    setIsConfirmModalOpen(false);
     if (existing) {
       setIsiJawaban(existing.isiJawaban || '');
       setJawabanPerSoal(existing.jawabanPerSoal || {});
@@ -151,10 +180,13 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     if (!file) return;
 
     if (file.size > 15 * 1024 * 1024) {
-      alert('Ukuran berkas maksimal 15MB. Untuk video berdurasi panjang, silakan sertakan tautan Google Drive / YouTube.');
+      setValidationError(
+        'Ukuran berkas melebihi batas 15MB. Untuk video berdurasi panjang, silakan gunakan tautan Google Drive atau YouTube.'
+      );
       return;
     }
 
+    setValidationError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
@@ -168,9 +200,53 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     reader.readAsDataURL(file);
   };
 
-  const handleSaveSubmission = (e: React.FormEvent) => {
+  // Tahap 1: Validasi dan Buka Modal Konfirmasi Pengumpulan
+  const handleInitiateSubmission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeUploadTugas) return;
+    setValidationError(null);
+
+    // Validasi Jawaban Langsung jika jenis tugas mewajibkan
+    if (
+      activeUploadTugas.jenisPengumpulan === 'JAWAB_LANGSUNG' ||
+      activeUploadTugas.jenisPengumpulan === 'Teks'
+    ) {
+      if (activeUploadTugas.daftarSoal && activeUploadTugas.daftarSoal.length > 0) {
+        const hasAnyAnswer = activeUploadTugas.daftarSoal.some((s, idx) => {
+          const a = jawabanPerSoal[s.id] || jawabanPerSoal[String(idx + 1)] || '';
+          return a.trim().length > 0;
+        });
+        if (!hasAnyAnswer) {
+          setValidationError(
+            'Mohon ketikkan jawaban untuk butir pertanyaan tugas mandiri sebelum mengirim.'
+          );
+          return;
+        }
+      } else if (!isiJawaban.trim()) {
+        setValidationError('Mohon ketikkan analisis jawaban Anda terlebih dahulu sebelum mengirim.');
+        return;
+      }
+    } else if (
+      activeUploadTugas.jenisPengumpulan === 'UPLOAD_FILE' ||
+      activeUploadTugas.jenisPengumpulan === 'Dokumen' ||
+      activeUploadTugas.jenisPengumpulan === 'Video/Foto'
+    ) {
+      if (!uploadedFile && !linkDokumen.trim() && !linkVideo.trim()) {
+        setValidationError(
+          'Mohon pilih dan lampirkan berkas foto praktik / dokumen PDF atau tautan video tugas Anda.'
+        );
+        return;
+      }
+    }
+
+    // Seluruh validasi lolos: buka modal konfirmasi khusus pencegahan salah kirim
+    setIsConfirmModalOpen(true);
+  };
+
+  // Tahap 2: Eksekusi Penyimpanan Pengumpulan Tugas setelah Dikonfirmasi
+  const handleConfirmFinalSubmit = () => {
+    if (!activeUploadTugas) return;
+    setIsSubmitting(true);
 
     const existing = mySubmissions.find((p) => p.tugasId === activeUploadTugas.id);
 
@@ -215,12 +291,42 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
       };
     });
 
-    alert('Tugas berhasil dikumpulkan dan tersimpan!');
+    const submittedTitle = activeUploadTugas.judul;
+    setIsSubmitting(false);
+    setIsConfirmModalOpen(false);
     handleCloseModal();
+
+    setSubmitSuccessBanner({
+      show: true,
+      message: `Tugas "${submittedTitle}" berhasil dikumpulkan dan tersimpan aman. Data telah tercatat pada laporan guru PJOK.`,
+      tugasJudul: submittedTitle,
+    });
   };
 
   return (
     <div className="space-y-6">
+      {/* Banner Sukses Pengumpulan Tugas */}
+      {submitSuccessBanner?.show && (
+        <div className="p-4 bg-emerald-50 border-2 border-emerald-400 rounded-2xl flex items-center justify-between gap-3 text-emerald-950 shadow-xs animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-black">Pengumpulan Tugas Berhasil Terkirim</h4>
+              <p className="text-xs text-emerald-800">{submitSuccessBanner.message}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubmitSuccessBanner(null)}
+            className="px-3 py-1.5 bg-white text-emerald-800 hover:bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -505,7 +611,69 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
               <p className="text-xs text-slate-500">{activeUploadTugas.instruksi}</p>
             </div>
 
-            <form onSubmit={handleSaveSubmission} className="space-y-4 text-xs">
+            {/* Notifikasi Khusus Peringatan Tenggat Waktu & Pencegahan Salah Kirim */}
+            {(isActiveNearDeadline || isActiveOverdue) && (
+              <div
+                className={`p-3.5 sm:p-4 rounded-2xl border-2 mb-4 flex items-start gap-3 transition-all ${
+                  isActiveOverdue
+                    ? 'bg-rose-50 border-rose-300 text-rose-950 shadow-2xs'
+                    : isActiveUrgent24H
+                    ? 'bg-gradient-to-r from-rose-50 via-orange-50 to-amber-50 border-rose-300 text-rose-950 shadow-2xs'
+                    : 'bg-amber-50 border-amber-300 text-amber-950 shadow-2xs'
+                }`}
+              >
+                <div
+                  className={`p-2 rounded-xl shrink-0 mt-0.5 ${
+                    isActiveOverdue || isActiveUrgent24H
+                      ? 'bg-rose-600 text-white animate-pulse'
+                      : 'bg-amber-600 text-white'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-xs">
+                      {isActiveOverdue
+                        ? 'Tenggat Waktu Pengumpulan Telah Berakhir'
+                        : isActiveUrgent24H
+                        ? 'Peringatan Kritis: Batas Akhir Tenggat Waktu (< 24 Jam)!'
+                        : 'Peringatan: Tugas Mendekati Batas Akhir (Deadline)!'}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase text-white ${
+                        isActiveOverdue || isActiveUrgent24H ? 'bg-rose-600' : 'bg-amber-600'
+                      }`}
+                    >
+                      {activeTimeRemaining || 'Periksa Tenggat'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-700">
+                    Batas waktu pengumpulan: <strong>{formattedActiveDeadline}</strong>.
+                    Untuk <strong>mencegah salah kirim berkas</strong> atau tertukar tugas karena tergesa-gesa, mohon periksa kembali kesesuaian dokumen atau rekaman gerak sebelum mengirim.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Inline Validation Error Banner */}
+            {validationError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-800 text-xs font-semibold flex items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{validationError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setValidationError(null)}
+                  className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleInitiateSubmission} className="space-y-4 text-xs">
               {/* Bagian 1: Menjawab Langsung (Dengan Anti Copy-Paste) */}
               {(activeUploadTugas.jenisPengumpulan === 'JAWAB_LANGSUNG' ||
                 activeUploadTugas.jenisPengumpulan === 'KEDUANYA' ||
@@ -753,6 +921,29 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal Konfirmasi Khusus Pengumpulan Tugas (Pencegahan Salah Kirim) */}
+      {activeUploadTugas && (
+        <ModalKonfirmasiKumpulTugas
+          isOpen={isConfirmModalOpen}
+          onClose={() => setIsConfirmModalOpen(false)}
+          onConfirm={handleConfirmFinalSubmit}
+          tugas={activeUploadTugas}
+          submissionData={{
+            isiJawaban,
+            jawabanPerSoal,
+            uploadedFile,
+            linkVideo,
+            catatan,
+          }}
+          isNearDeadline={isActiveNearDeadline}
+          isUrgent24H={isActiveUrgent24H}
+          isOverdue={isActiveOverdue}
+          timeRemainingFormatted={activeTimeRemaining}
+          formattedDeadline={formattedActiveDeadline}
+          isSubmitting={isSubmitting}
+        />
       )}
 
       {/* In-App Media Viewer Modal */}

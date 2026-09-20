@@ -58,6 +58,7 @@ import { PenilaianTemanSejawatManager } from './components/shared/PenilaianTeman
 import { FormPendampinganMurid } from './components/shared/FormPendampinganMurid';
 import { RekapanPendampingan } from './components/shared/RekapanPendampingan';
 import { LaporanPelaksanaanPembelajaran } from './components/shared/LaporanPelaksanaanPembelajaran';
+import { LaporanPenilaian } from './components/shared/LaporanPenilaian';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
@@ -293,9 +294,16 @@ export default function App() {
             />
           );
         case 'laporan-pelaksanaan':
-        case 'laporan':
           return (
             <LaporanPelaksanaanPembelajaran
+              db={db}
+              currentUser={currentUser}
+            />
+          );
+        case 'laporan-penilaian':
+        case 'laporan':
+          return (
+            <LaporanPenilaian
               db={db}
               currentUser={currentUser}
             />
@@ -439,9 +447,16 @@ export default function App() {
             />
           );
         case 'laporan-pelaksanaan':
-        case 'laporan':
           return (
             <LaporanPelaksanaanPembelajaran
+              db={db}
+              currentUser={currentUser}
+            />
+          );
+        case 'laporan-penilaian':
+        case 'laporan':
+          return (
+            <LaporanPenilaian
               db={db}
               currentUser={currentUser}
             />

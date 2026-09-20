@@ -32,9 +32,10 @@ import {
   ChevronDown,
   ChevronRight,
   FileSpreadsheet,
+  BarChart3,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { UserRole, User as UserType, resolveKelasId, APP_VERSION_LABEL } from '../types';
+import { UserRole, User as UserType, resolveKelasId, APP_VERSION_LABEL, getTeacherAssignedClasses } from '../types';
 import { dataStorage } from '../services/dataStorage';
 import { calculateStudentFeatureBadges, markSidebarMenuAsReadForUser } from '../utils/studentNotificationHelper';
 
@@ -120,9 +121,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const getAdminSections = (): MenuSection[] => {
-    const pendingIzinCount = (dataStorage.getDatabase().pengajuanIzin || []).filter(
+    const currentDb = dataStorage.getDatabase();
+    const pendingIzinCount = (currentDb.pengajuanIzin || []).filter(
       (i) => i.status === 'Menunggu'
     ).length;
+
+    const pendingPendampinganAdminCount = (currentDb.pendampinganMurid || []).filter((p) => {
+      const hasStudentMsg = Boolean(p.deskripsiMasalah?.trim() || p.komitmenMurid?.trim());
+      const isHandled =
+        p.status === 'Selesai / Teratasi' ||
+        p.status === 'Perlu Pemantauan Khusus' ||
+        p.status === 'Dirujuk ke Guru BK' ||
+        Boolean(p.tindakanPenanganan?.trim() || p.catatanGuru?.trim());
+      return hasStudentMsg && !isHandled;
+    }).length;
 
     return [
       {
@@ -153,7 +165,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'materi', label: 'Konten Materi', icon: <BookMarked className="w-5 h-5" /> },
           { id: 'tugas', label: 'Tugas', icon: <ClipboardList className="w-5 h-5" /> },
           { id: 'quiz', label: 'Quiz & Asesmen', icon: <CheckCircle className="w-5 h-5" /> },
-          { id: 'pendampingan-murid', label: 'Form Pendampingan Murid', icon: <UserCheck className="w-5 h-5 text-emerald-400" /> },
+          {
+            id: 'pendampingan-murid',
+            label: 'Form Pendampingan Murid',
+            icon: <UserCheck className="w-5 h-5 text-emerald-400" />,
+            badge: pendingPendampinganAdminCount > 0 ? pendingPendampinganAdminCount : undefined,
+          },
           { id: 'refleksi', label: 'Refleksi Pembelajaran', icon: <Sparkles className="w-5 h-5 text-amber-400" /> },
         ],
       },
@@ -204,6 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <FileSpreadsheet className="w-4 h-4 text-emerald-400" />,
         items: [
           { id: 'laporan-pelaksanaan', label: 'Laporan Pelaksanaan Pembelajaran', icon: <FileSpreadsheet className="w-5 h-5 text-teal-400" /> },
+          { id: 'laporan-penilaian', label: 'Laporan Penilaian', icon: <BarChart3 className="w-5 h-5 text-indigo-400" /> },
         ],
       },
       {
@@ -220,6 +238,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const getGuruSections = (): MenuSection[] => {
+    const currentDb = dataStorage.getDatabase();
+    const guruClasses = currentUser ? getTeacherAssignedClasses(currentUser, currentDb.kelas) : [];
+    const guruClassIds = guruClasses.map((k) => k.id);
+
+    const pendingPendampinganGuruCount = (currentDb.pendampinganMurid || []).filter((p) => {
+      const hasStudentMsg = Boolean(p.deskripsiMasalah?.trim() || p.komitmenMurid?.trim());
+      const isHandled =
+        p.status === 'Selesai / Teratasi' ||
+        p.status === 'Perlu Pemantauan Khusus' ||
+        p.status === 'Dirujuk ke Guru BK' ||
+        Boolean(p.tindakanPenanganan?.trim() || p.catatanGuru?.trim());
+      if (!hasStudentMsg || isHandled) return false;
+      if (currentUser && p.guruId && p.guruId === currentUser.id) return true;
+      if (guruClassIds.length > 0 && p.kelasId && !guruClassIds.includes(p.kelasId) && p.guruId) {
+        return false;
+      }
+      return true;
+    }).length;
+
     return [
       {
         title: 'UTAMA',
@@ -238,7 +275,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'materi', label: 'Materi Pembelajaran', icon: <BookMarked className="w-5 h-5" /> },
           { id: 'tugas', label: 'Tugas', icon: <ClipboardList className="w-5 h-5" /> },
           { id: 'quiz', label: 'Quiz & Asesmen', icon: <CheckCircle className="w-5 h-5" /> },
-          { id: 'pendampingan-murid', label: 'Form Pendampingan Murid', icon: <UserCheck className="w-5 h-5 text-emerald-400" /> },
+          {
+            id: 'pendampingan-murid',
+            label: 'Form Pendampingan Murid',
+            icon: <UserCheck className="w-5 h-5 text-emerald-400" />,
+            badge: pendingPendampinganGuruCount > 0 ? pendingPendampinganGuruCount : undefined,
+          },
           { id: 'refleksi', label: 'Refleksi Pembelajaran', icon: <Sparkles className="w-5 h-5 text-amber-400" /> },
         ],
       },
@@ -288,6 +330,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <FileSpreadsheet className="w-4 h-4 text-emerald-400" />,
         items: [
           { id: 'laporan-pelaksanaan', label: 'Laporan Pelaksanaan Pembelajaran', icon: <FileSpreadsheet className="w-5 h-5 text-teal-400" /> },
+          { id: 'laporan-penilaian', label: 'Laporan Penilaian', icon: <BarChart3 className="w-5 h-5 text-indigo-400" /> },
         ],
       },
       {

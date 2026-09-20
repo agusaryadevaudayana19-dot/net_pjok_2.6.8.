@@ -496,7 +496,9 @@ export const FormPendampinganMurid: React.FC<FormPendampinganMuridProps> = ({
       (db.users || []).find(
         (u) =>
           u.role === 'GURU' &&
-          (u.kelasIds?.includes(currentUser.kelasId || '') || u.id === myClass?.waliId)
+          ((u.kelasDiampuIds && u.kelasDiampuIds.includes(currentUser.kelasId || '')) ||
+            (u.kelasDiampu && u.kelasDiampu.includes(myClass?.nama || '')) ||
+            u.id === myClass?.waliId)
       ) || (db.users || []).find((u) => u.role === 'GURU');
 
     const existingRecord = myAlpaStats?.myPendampingan[0];

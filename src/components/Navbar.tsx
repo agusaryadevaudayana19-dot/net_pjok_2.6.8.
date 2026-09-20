@@ -133,8 +133,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         if (n.targetRole && n.targetRole !== 'GURU' && n.targetRole !== 'ALL' && n.targetRole !== 'ADMIN') {
           return false;
         }
-        if (n.targetKelasId && n.targetKelasId !== 'ALL' && guruKelasIds.length > 0 && !guruKelasIds.includes(n.targetKelasId)) {
-          return false;
+        // Notifikasi pendampingan murid / konsultasi harus dapat diakses oleh Guru PJOK
+        const isPendampingan = n.tipe === 'pendampingan' || n.targetMenu === 'pendampingan-murid';
+        if (!isPendampingan) {
+          if (n.targetKelasId && n.targetKelasId !== 'ALL' && guruKelasIds.length > 0 && !guruKelasIds.includes(n.targetKelasId)) {
+            return false;
+          }
+        } else {
+          // Khusus pendampingan: jika guru memiliki kelas, utamakan kelasnya, namun jika notifikasi umum guru, tetap izinkan
+          if (n.targetKelasId && n.targetKelasId !== 'ALL' && guruKelasIds.length > 0 && !guruKelasIds.includes(n.targetKelasId) && n.targetRole !== 'GURU') {
+            return false;
+          }
         }
         return true;
       });
@@ -149,7 +158,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           Boolean(p.tindakanPenanganan?.trim() || p.catatanGuru?.trim());
 
         if (!hasStudentMessage || isHandled) return false;
-        if (guruKelasIds.length > 0 && p.kelasId && !guruKelasIds.includes(p.kelasId)) {
+        // Jika guru ditugaskan langsung pada berkas pendampingan, selalu tampilkan
+        if (p.guruId && p.guruId === currentUser.id) return true;
+        // Jika guru memiliki daftar kelas ampu, cocokkan jika p.kelasId terdaftar
+        if (guruKelasIds.length > 0 && p.kelasId && !guruKelasIds.includes(p.kelasId) && p.guruId) {
           return false;
         }
         return true;
