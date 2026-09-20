@@ -36,15 +36,11 @@ export function usePWAInstall() {
     }
 
     const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent browser default mini-infobar so we control the exact moment of install prompt
       e.preventDefault();
       const promptEvent = e as BeforeInstallPromptEvent;
+      // Store event safely so it can be triggered on user click
       setDeferredPrompt(promptEvent);
-      // Automatically prompt install when the link is opened
-      try {
-        promptEvent.prompt().catch(() => {});
-      } catch (err) {
-        // user gesture fallback if browser restricts immediate prompt
-      }
     };
 
     const handleAppInstalled = () => {

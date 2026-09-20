@@ -80,7 +80,6 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<FirestoreSyncStatus>(dataStorage.getSyncStatus());
-  const prevManifestUrlRef = useRef<string | null>(null);
 
   // Pembersihan data sampah (soft-deleted items) di Firestore yang > 30 hari secara otomatis
   useEffect(() => {
@@ -132,63 +131,10 @@ export default function App() {
       appleIcon.href = targetApple;
     }
 
-    // Update manifest dynamically so browser PWA install prompt always captures the official logo
-    try {
-      const activeLogo = customLogo && customLogo.trim() !== '' ? customLogo : '/pwa-192x192.png';
-      const dynamicManifest = {
-        id: '/',
-        name: db.settings?.namaSekolah ? `NET PJOK - ${db.settings.namaSekolah}` : 'NET PJOK - SMA Negeri 1 Tejakula (SMANSAKA)',
-        short_name: 'NET PJOK',
-        description: 'Aplikasi LMS PJOK SMA Negeri 1 Tejakula (SMANSAKA) - Pendidikan Jasmani, Olahraga, dan Kesehatan',
-        start_url: '/',
-        scope: '/',
-        display: 'standalone',
-        orientation: 'any',
-        theme_color: '#2563eb',
-        background_color: '#0f172a',
-        categories: ['education', 'sports'],
-        icons: [
-          {
-            src: activeLogo,
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: activeLogo,
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-          {
-            src: targetApple,
-            sizes: '180x180',
-            type: 'image/png',
-            purpose: 'any',
-          },
-        ],
-      };
-
-      const blob = new Blob([JSON.stringify(dynamicManifest)], { type: 'application/manifest+json' });
-      const newManifestUrl = URL.createObjectURL(blob);
-
-      let manifestEl = document.querySelector<HTMLLinkElement>("link[rel='manifest']");
-      if (manifestEl) {
-        manifestEl.href = newManifestUrl;
-      }
-
-      if (prevManifestUrlRef.current) {
-        URL.revokeObjectURL(prevManifestUrlRef.current);
-      }
-      prevManifestUrlRef.current = newManifestUrl;
-    } catch (err) {
-      console.warn('Gagal memperbarui manifest dinamis:', err);
+    // Ensure the canonical manifest points to /manifest.json for Chrome WebAPK compliance
+    const manifestEl = document.querySelector<HTMLLinkElement>("link[rel='manifest']");
+    if (manifestEl && manifestEl.href !== '/manifest.json') {
+      manifestEl.href = '/manifest.json';
     }
   }, [db.settings?.logoSekolah, db.settings?.namaSekolah]);
 

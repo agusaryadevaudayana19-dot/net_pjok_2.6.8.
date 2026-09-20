@@ -41,6 +41,7 @@ export const MustInstallPWAWarningModal: React.FC<MustInstallPWAWarningModalProp
   });
 
   const [isInstalling, setIsInstalling] = useState(false);
+  const [installNotice, setInstallNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -49,11 +50,23 @@ export const MustInstallPWAWarningModal: React.FC<MustInstallPWAWarningModalProp
 
   const handleInstallClick = async () => {
     setIsInstalling(true);
+    setInstallNotice(null);
     try {
-      const ok = await install();
-      if (ok) {
-        confirmInstalled();
-        onBypassOrInstalled();
+      if (isInstallable) {
+        const ok = await install();
+        if (ok) {
+          confirmInstalled();
+          onBypassOrInstalled();
+          return;
+        }
+      } else {
+        if (isIOS) {
+          setActiveTab('ios');
+        } else {
+          setInstallNotice(
+            'Browser sedang memvalidasi izin instalasi. Jika dialog pop-up tidak muncul langsung, pastikan membuka situs ini di Google Chrome (bukan browser chat WhatsApp/Instagram), lalu ketuk menu titik tiga (⋮) di kanan atas dan pilih "Instal aplikasi".'
+          );
+        }
       }
     } finally {
       setIsInstalling(false);
@@ -168,26 +181,34 @@ export const MustInstallPWAWarningModal: React.FC<MustInstallPWAWarningModalProp
         <div className="mt-3.5">
           {activeTab === 'android' ? (
             <div className="space-y-3">
-              {isInstallable && (
-                <button
-                  type="button"
-                  onClick={handleInstallClick}
-                  disabled={isInstalling}
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>{isInstalling ? 'Memproses Pemasangan...' : 'Klik Di Sini Untuk Instal Otomatis di HP'}</span>
-                </button>
+              <button
+                type="button"
+                onClick={handleInstallClick}
+                disabled={isInstalling}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs sm:text-sm shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
+              >
+                <Download className="w-4 h-4" />
+                <span>
+                  {isInstalling
+                    ? 'Menyiapkan Dialog Instalasi...'
+                    : '⚡ Pasang Aplikasi Sekarang (Instal Otomatis)'}
+                </span>
+              </button>
+
+              {installNotice && (
+                <div className="p-3 rounded-xl bg-blue-950/70 border border-blue-500/40 text-blue-200 text-xs leading-relaxed animate-in fade-in">
+                  <p>{installNotice}</p>
+                </div>
               )}
 
               <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 text-xs space-y-2">
-                <p className="font-bold text-slate-200">Cara Pasang di Google Chrome / Edge Android:</p>
+                <p className="font-bold text-slate-200">Cara Pasang Resmi di Google Chrome Android:</p>
                 <div className="flex items-start gap-2.5">
                   <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">
                     1
                   </span>
                   <p className="text-slate-300">
-                    Ketuk menu <strong>titik tiga (⋮)</strong> di pojok kanan atas browser Chrome / Edge.
+                    Buka situs ini langsung di aplikasi <strong>Google Chrome</strong> (bukan di dalam browser bawaan WhatsApp/Instagram).
                   </p>
                 </div>
                 <div className="flex items-start gap-2.5">
@@ -195,7 +216,7 @@ export const MustInstallPWAWarningModal: React.FC<MustInstallPWAWarningModalProp
                     2
                   </span>
                   <p className="text-slate-300">
-                    Pilih menu <strong>"Instal aplikasi"</strong> atau <strong>"Tambahkan ke Layar Utama"</strong>.
+                    Klik tombol <strong>"⚡ Pasang Aplikasi Sekarang"</strong> di atas, atau klik menu <strong>titik tiga (⋮)</strong> di pojok kanan atas Chrome lalu pilih <strong>"Instal aplikasi"</strong>.
                   </p>
                 </div>
                 <div className="flex items-start gap-2.5">
@@ -203,7 +224,7 @@ export const MustInstallPWAWarningModal: React.FC<MustInstallPWAWarningModalProp
                     3
                   </span>
                   <p className="text-slate-300">
-                    Tekan <strong>"Instal"</strong>. Logo resmi NET PJOK akan langsung terpasang di layar utama HP Anda.
+                    Pada dialog pop-up yang muncul di HP, tekan <strong>"Instal"</strong>. Aplikasi akan terpasang utuh dengan logo resmi sekolah di menu aplikasi HP Anda.
                   </p>
                 </div>
               </div>
