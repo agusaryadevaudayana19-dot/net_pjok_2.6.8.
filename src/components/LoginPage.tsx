@@ -51,16 +51,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, settings }
     }
 
     // Refresh database state
-    let currentDb = dataStorage.getDatabase();
-    let usersList = currentDb.users || [];
-
-    // Safety net: If no murid accounts exist in the database, restore them automatically
-    const muridCount = usersList.filter((u) => u.role === 'MURID').length;
-    if (muridCount === 0) {
-      dataStorage.seedSampleStudents();
-      currentDb = dataStorage.getDatabase();
-      usersList = currentDb.users || [];
-    }
+    const currentDb = dataStorage.getDatabase();
+    const usersList = currentDb.users || [];
 
     const matchUser = (u: User) => {
       const uUsername = String(u.username || '').toLowerCase();

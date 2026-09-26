@@ -28,6 +28,8 @@ import {
   TrashUserItem,
   UserRole,
   PendampinganMuridRecord,
+  IndikatorPenilaianItem,
+  TugasPenilaianAntarTeman,
 } from '../types';
 import {
   collection,
@@ -38,7 +40,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { signInAnonymously } from 'firebase/auth';
-import { firestore, handleFirestoreError, OperationType } from './firestore';
+import { firestore, handleFirestoreError, OperationType, toggleFirestoreOffline } from './firestore';
 import { auth } from './firebaseAuth';
 import { DEFAULT_USERS, DEFAULT_NILAI } from '../data/defaultUsers';
 import { exportUsersToCSV, parseCSVToUsers } from '../utils/csvUserHelpers';
@@ -66,6 +68,8 @@ export interface LMSDatabase {
   penilaianSikap?: PenilaianSikap[];
   penilaianTemanSejawat?: PenilaianTemanSejawat[];
   dimensiTemanSejawat?: DimensiTemanSejawatConfig[];
+  bankIndikatorPenilaian?: IndikatorPenilaianItem[];
+  tugasPenilaianAntarTeman?: TugasPenilaianAntarTeman[];
   penilaianHarian?: PenilaianHarian[];
   pendampinganMurid?: PendampinganMuridRecord[];
   trashUsers?: TrashUserItem[];
@@ -84,167 +88,18 @@ export const DEFAULT_DIMENSI_TEMAN_SEJAWAT: DimensiAsesmenItem[] = [
   { id: 'dim-4', nama: 'Tanggung Jawab dalam Peran Kelompok' },
 ];
 
+export const DEFAULT_BANK_INDIKATOR: IndikatorPenilaianItem[] = [];
+
+export const DEFAULT_TUGAS_PENILAIAN_ANTAR_TEMAN: TugasPenilaianAntarTeman[] = [];
+
 export function safeStringTrim(val: unknown): string {
   if (val === null || val === undefined) return '';
   return String(val).trim();
 }
 
-const DEFAULT_QUIZ_SOAL: Soal[] = [
-  {
-    id: 'soal-1',
-    quizId: 'qz-1',
-    nomor: 1,
-    pertanyaan:
-      'Ketika seorang pemain menerima smash keras lawan, mengapa posisi tangan passing bawah harus dikunci lurus dan siku tidak boleh tertekuk?',
-    tipe: 'Pilihan Ganda',
-    kategoriSoal: 'HOTS',
-    pilihan: [
-      'Agar pantulan bola stabil dan arah lambungan mudah dikontrol ke arah setter',
-      'Agar bola langsung kembali ke lapangan lawan tanpa disentuh setter',
-      'Untuk menghindari terjadinya pelanggaran double touch oleh wasit',
-      'Agar kecepatan bola meningkat tajam saat memantul ke atas',
-      'Untuk meredam kekuatan smash tanpa mengubah arah lintas bola',
-    ],
-    kunciJawaban: 'Agar pantulan bola stabil dan arah lambungan mudah dikontrol ke arah setter',
-    pembahasan:
-      'Siku yang dikunci lurus menciptakan bidang datar solid pada lengan bawah, meminimalkan getaran dan menghasilkan pantulan elastis yang terarah.',
-    bobot: 20,
-  },
-  {
-    id: 'soal-2',
-    quizId: 'qz-1',
-    nomor: 2,
-    pertanyaan:
-      'Dalam sistem rotasi bola voli modern, rotasi dilakukan searah jarum jam setiap kali regu penerima servis berhasil mematikan bola lawan dan merebut hak servis.',
-    tipe: 'Benar/Salah',
-    kategoriSoal: 'AKM',
-    pilihan: ['Benar', 'Salah'],
-    kunciJawaban: 'Benar',
-    pembahasan:
-      'Rotasi searah jarum jam (posisi 1 ke 6, 6 ke 5, dst) dilakukan saat tim berhasil merebut hak servis dari lawan.',
-    bobot: 15,
-  },
-  {
-    id: 'soal-3',
-    quizId: 'qz-1',
-    nomor: 3,
-    pertanyaan:
-      'Cocokkan gambar teknik olahraga di bawah ini dengan nama teknik gerak dasar yang paling tepat!',
-    tipe: 'Mencocokkan Gambar',
-    kategoriSoal: 'HOTS',
-    gambarUrl: 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=800&auto=format&fit=crop&q=80',
-    pilihan: [
-      'Passing Bawah Bola Voli',
-      'Smash Keras Menukik',
-      'Block / Bendungan Net',
-      'Servis Atas Mengapung',
-      'Passing Atas (Set Up)',
-    ],
-    kunciJawaban: 'Passing Bawah Bola Voli',
-    pembahasan:
-      'Gambar menunjukkan posisi kedua tangan rapat lurus ke depan bawah dengan lutut sedikit ditekuk untuk menerima bola.',
-    matchingPairs: [
-      {
-        id: 'mp-1',
-        left: 'Passing Bawah',
-        right: 'Menerima servis dan smash lawan di depan bawah',
-        imageUrl: 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=400&auto=format&fit=crop&q=80',
-      },
-      {
-        id: 'mp-2',
-        left: 'Lay-Up Shoot',
-        right: 'Tembakan melayang dua langkah ke papan pantul basket',
-        imageUrl: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&auto=format&fit=crop&q=80',
-      },
-      {
-        id: 'mp-3',
-        left: 'Smash Bulutangkis',
-        right: 'Pukulan overhead keras menukik tajam ke area lawan',
-        imageUrl: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=400&auto=format&fit=crop&q=80',
-      },
-    ],
-    bobot: 25,
-  },
-  {
-    id: 'soal-4',
-    quizId: 'qz-1',
-    nomor: 4,
-    pertanyaan:
-      'Tarik garis / jodohkan peran pemain bola voli (Kolom A) dengan tugas taktis utamanya di lapangan (Kolom B)!',
-    tipe: 'Tarik Garis',
-    kategoriSoal: 'AKM',
-    pilihan: [],
-    matchingPairs: [
-      { left: 'Tosser / Setter', right: 'Mengatur serangan dan mengumpan bola matang untuk spiker' },
-      { left: 'Libero', right: 'Pemain bertahan murni, dilarang menyerang dan servis' },
-      { left: 'Spiker / Smasher', right: 'Mengeksekusi bola di atas net untuk mencetak poin serangan' },
-      { left: 'Blocker', right: 'Membendung serangan smash lawan di dekat bibir net' },
-    ],
-    kunciJawaban: 'Tosser=Mengatur serangan, Libero=Pemain bertahan murni, Spiker=Mengeksekusi bola, Blocker=Membendung serangan',
-    pembahasan:
-      'Setiap posisi dalam bola voli memiliki spesialisasi peran yang saling melengkapi dalam formasi taktik regu.',
-    bobot: 25,
-  },
-  {
-    id: 'soal-5',
-    quizId: 'qz-1',
-    nomor: 5,
-    pertanyaan:
-      'Berapa jumlah sentuhan maksimal yang diperbolehkan bagi satu regu sebelum bola harus diseberangkan ke daerah lawan (tidak termasuk sentuhan bendungan/block)?',
-    tipe: 'Pilihan Ganda',
-    kategoriSoal: 'Standar',
-    pilihan: [
-      '1 kali sentuhan langsung',
-      '2 kali sentuhan beruntun',
-      '3 kali sentuhan tim',
-      '4 kali sentuhan bebas',
-      '5 kali sentuhan dalam reli panjang',
-    ],
-    kunciJawaban: '3 kali sentuhan tim',
-    pembahasan:
-      'Berdasarkan regulasi resmi FIVB, satu tim berhak menyentuh bola maksimal 3 kali sebelum melewati net.',
-    bobot: 15,
-  },
-  {
-    id: 'soal-6',
-    quizId: 'qz-1',
-    nomor: 6,
-    pertanyaan:
-      'Pada saat mendarat setelah melakukan loncatan smash atau block bola voli, sendi manakah yang harus ditekuk untuk meredam gaya tumbukan (shock absorption) agar mencegah cedera ligamen lutut?',
-    tipe: 'Isian',
-    kategoriSoal: 'HOTS',
-    pilihan: [],
-    kunciJawaban: 'Lutut dan pergelangan kaki',
-    pembahasan:
-      'Fleksi sendi lutut (knee flexion) bersama sendi pergelangan kaki (ankle) dan panggul bertindak sebagai peredam kejut mekanis tubuh (deceleration phase). Mendarat dengan tungkai kaku atau lurus meningkatkan risiko cedera robekan ligamen ACL secara drastis.',
-    bobot: 20,
-  },
-];
+const DEFAULT_QUIZ_SOAL: Soal[] = [];
 
-export const INITIAL_CLASSES: Kelas[] = [
-  {
-    id: 'cls-x-1',
-    nama: 'X 1',
-    tingkat: 'X',
-    waliKelasId: 'usr-admin-1',
-    waliKelasNama: 'Administrator',
-    guruPengampuId: 'usr-admin-1',
-    guruPengampuNama: 'Administrator',
-    tahunPelajaran: '2026/2027',
-    totalMurid: 0,
-  },
-  {
-    id: 'cls-xii-1',
-    nama: 'XII 1',
-    tingkat: 'XII',
-    waliKelasId: 'usr-admin-1',
-    waliKelasNama: 'Administrator',
-    guruPengampuId: 'usr-admin-1',
-    guruPengampuNama: 'Administrator',
-    tahunPelajaran: '2026/2027',
-    totalMurid: 0,
-  },
-];
+export const INITIAL_CLASSES: Kelas[] = [];
 
 export const INITIAL_DATABASE: LMSDatabase = {
   settings: {
@@ -280,6 +135,9 @@ export const INITIAL_DATABASE: LMSDatabase = {
   pengajuanIzin: [],
   penilaianSikap: [],
   penilaianTemanSejawat: [],
+  dimensiTemanSejawat: [],
+  bankIndikatorPenilaian: DEFAULT_BANK_INDIKATOR,
+  tugasPenilaianAntarTeman: DEFAULT_TUGAS_PENILAIAN_ANTAR_TEMAN,
   penilaianHarian: [],
   pendampinganMurid: [],
   trashUsers: [],
@@ -300,7 +158,7 @@ export const INITIAL_DATABASE: LMSDatabase = {
   ],
 };
 
-export type FirestoreSyncStatus = 'connecting' | 'synced' | 'syncing' | 'offline' | 'error';
+export type FirestoreSyncStatus = 'connecting' | 'synced' | 'syncing' | 'offline' | 'error' | 'disabled';
 
 /**
  * Deduplikasi data murid agar tidak terjadi penumpukan nama/duplikasi ganda.
@@ -373,12 +231,13 @@ export function deduplicateMuridList(users: User[]): {
 class DataStorageService {
   private db: LMSDatabase;
   private listeners: Array<(db: LMSDatabase) => void> = [];
-  private syncStatus: FirestoreSyncStatus = 'connecting';
+  private syncStatus: FirestoreSyncStatus = 'disabled';
   private lastSyncTime: Date | null = null;
   private statusListeners: Array<(status: FirestoreSyncStatus, lastSync?: Date | null) => void> = [];
   private isApplyingRemoteUpdate = false;
   private isSyncingToFirestore = false;
   private unsubscribeFirestore: Unsubscribe | null = null;
+  private isFirebaseEnabled: boolean = false;
 
   constructor() {
     const CLEAN_KEY = 'lms_hard_clean_v6_done';
@@ -402,24 +261,69 @@ class DataStorageService {
 
     this.db = this.loadFromLocalStorage();
 
-    // Pastikan data murid kosong awal sesuai permintaan user agar bisa diisi bersih melalui import CSV/Excel
+    // Pembersihan total semua data contoh/dummy/mock agar database 100% bersih setelah Firebase diaktifkan
     if (typeof window !== 'undefined') {
       try {
-        const MURID_CLEAN_FLAG = 'lms_murid_cleaned_for_import_v8';
-        if (localStorage.getItem(MURID_CLEAN_FLAG) !== 'done') {
-          this.db.users = (this.db.users || []).filter(
-            (u) => !(u.role === 'MURID' && (u.id === 'usr-murid-1' || u.id === 'usr-murid-2' || u.id === 'usr-murid-3'))
-          );
-          if (!Array.isArray(this.db.trashUsers)) {
-            this.db.trashUsers = [];
-          }
+        const CLEAN_ALL_SAMPLES_KEY = 'lms_all_samples_wiped_v12';
+        if (localStorage.getItem(CLEAN_ALL_SAMPLES_KEY) !== 'done') {
+          this.db = {
+            ...INITIAL_DATABASE,
+            users: (this.db.users || []).filter((u) => u.role === 'ADMIN' || u.role === 'GURU'),
+            kelas: [],
+            mataPelajaran: [],
+            materi: [],
+            tugas: [],
+            pengumpulanTugas: [],
+            quiz: [],
+            jawabanQuiz: [],
+            penilaianPraktik: [],
+            presensi: [],
+            jurnal: [],
+            notifikasi: [],
+            pengumuman: [],
+            nilai: [],
+            refleksi: [],
+            jawabanRefleksi: [],
+            materiPraktikList: [],
+            pengajuanIzin: [],
+            penilaianSikap: [],
+            penilaianTemanSejawat: [],
+            dimensiTemanSejawat: [],
+            bankIndikatorPenilaian: [],
+            tugasPenilaianAntarTeman: [],
+            penilaianHarian: [],
+            pendampinganMurid: [],
+            trashUsers: [],
+            activityLogs: [],
+          };
           this.saveToLocalStorage(this.db);
-          localStorage.setItem(MURID_CLEAN_FLAG, 'done');
+          localStorage.setItem(CLEAN_ALL_SAMPLES_KEY, 'done');
+          localStorage.setItem('lms_firebase_enabled', 'true');
         }
       } catch (e) {}
     }
 
-    this.initFirestoreSync();
+    // Inisialisasi preferensi Firebase - diaktifkan sesuai instruksi pengguna
+    if (typeof window !== 'undefined') {
+      try {
+        const savedPref = localStorage.getItem('lms_firebase_enabled');
+        if (savedPref === null || savedPref === 'false') {
+          localStorage.setItem('lms_firebase_enabled', 'true');
+          this.isFirebaseEnabled = true;
+        } else {
+          this.isFirebaseEnabled = true;
+        }
+      } catch (e) {
+        this.isFirebaseEnabled = true;
+      }
+    }
+
+    if (!this.isFirebaseEnabled) {
+      this.syncStatus = 'disabled';
+      toggleFirestoreOffline(true).catch(() => {});
+    } else {
+      this.initFirestoreSync();
+    }
   }
 
   /**
@@ -551,6 +455,10 @@ class DataStorageService {
    * serta mendukung mode Standby / Offline tanpa gangguan.
    */
   private async initFirestoreSync() {
+    if (!this.isFirebaseEnabled) {
+      this.updateSyncStatus('disabled');
+      return;
+    }
     try {
       // Pasang deteksi status jaringan browser
       if (typeof window !== 'undefined') {
@@ -768,6 +676,10 @@ class DataStorageService {
    * Mengunggah seluruh data inisial ke Firestore (digunakan saat koleksi baru dibuat)
    */
   public async seedAllToFirestore(): Promise<void> {
+    if (!this.isFirebaseEnabled) {
+      console.info('Firebase dinonaktifkan (mode penyimpanan lokal). seedAllToFirestore dilewati.');
+      return;
+    }
     try {
       this.updateSyncStatus('syncing');
       const sections: (keyof LMSDatabase)[] = [
@@ -793,6 +705,8 @@ class DataStorageService {
         'penilaianSikap',
         'penilaianTemanSejawat',
         'dimensiTemanSejawat',
+        'bankIndikatorPenilaian',
+        'tugasPenilaianAntarTeman',
         'penilaianHarian',
         'pendampinganMurid',
         'trashUsers',
@@ -825,7 +739,7 @@ class DataStorageService {
    * Sinkronkan bagian yang berubah ke Firestore secara otomatis
    */
   private async syncChangesToFirestore(prev: LMSDatabase, next: LMSDatabase) {
-    if (this.isApplyingRemoteUpdate) {
+    if (!this.isFirebaseEnabled || this.isApplyingRemoteUpdate) {
       return;
     }
 
@@ -856,6 +770,8 @@ class DataStorageService {
         'penilaianSikap',
         'penilaianTemanSejawat',
         'dimensiTemanSejawat',
+        'bankIndikatorPenilaian',
+        'tugasPenilaianAntarTeman',
         'penilaianHarian',
         'pendampinganMurid',
         'trashUsers',
@@ -917,6 +833,9 @@ class DataStorageService {
   }
 
   public async forceRefreshFromFirestore(): Promise<void> {
+    if (!this.isFirebaseEnabled) {
+      throw new Error('Firebase sedang dinonaktifkan. Aktifkan Firebase terlebih dahulu di pengaturan untuk menarik data dari Cloud.');
+    }
     try {
       this.updateSyncStatus('syncing');
       const recordsCol = collection(firestore, 'lms_records');
@@ -1034,6 +953,32 @@ class DataStorageService {
         handleFirestoreError(err, OperationType.LIST, 'lms_records');
       }
     }
+  }
+
+  public isFirebaseActive(): boolean {
+    return this.isFirebaseEnabled;
+  }
+
+  public setFirebaseEnabled(enabled: boolean): void {
+    this.isFirebaseEnabled = enabled;
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('lms_firebase_enabled', enabled ? 'true' : 'false');
+      } catch (e) {}
+    }
+
+    if (enabled) {
+      toggleFirestoreOffline(false).catch(() => {});
+      this.initFirestoreSync();
+    } else {
+      if (this.unsubscribeFirestore) {
+        this.unsubscribeFirestore();
+        this.unsubscribeFirestore = null;
+      }
+      toggleFirestoreOffline(true).catch(() => {});
+      this.updateSyncStatus('disabled');
+    }
+    this.notifyLocalListeners();
   }
 
   public getCurrentUser(): User | null {
@@ -1194,6 +1139,9 @@ class DataStorageService {
           pengajuanIzin: Array.isArray(parsed?.pengajuanIzin) ? parsed.pengajuanIzin : [],
           penilaianSikap: Array.isArray(parsed?.penilaianSikap) ? parsed.penilaianSikap : [],
           penilaianTemanSejawat: Array.isArray(parsed?.penilaianTemanSejawat) ? parsed.penilaianTemanSejawat : [],
+          dimensiTemanSejawat: Array.isArray(parsed?.dimensiTemanSejawat) ? parsed.dimensiTemanSejawat : [],
+          bankIndikatorPenilaian: Array.isArray(parsed?.bankIndikatorPenilaian) ? parsed.bankIndikatorPenilaian : [],
+          tugasPenilaianAntarTeman: Array.isArray(parsed?.tugasPenilaianAntarTeman) ? parsed.tugasPenilaianAntarTeman : [],
           penilaianHarian: Array.isArray(parsed?.penilaianHarian) ? parsed.penilaianHarian : [],
           pendampinganMurid: Array.isArray(parsed?.pendampinganMurid) ? parsed.pendampinganMurid : [],
           trashUsers: Array.isArray(parsed?.trashUsers) ? parsed.trashUsers : [],
@@ -1321,7 +1269,7 @@ class DataStorageService {
         {
           id: `notif-clean-${Date.now()}`,
           judul: 'Database Telah Direset ke Nol',
-          pesan: 'Data pembelajaran, tugas, kuis, nilai, dan murid telah dibersihkan. Anda dapat mulai mengisi dari awal secara langsung terintegrasi dengan Firebase Firestore.',
+          pesan: 'Data pembelajaran, tugas, kuis, nilai, dan murid telah dibersihkan. Anda dapat mulai mengisi dari awal.',
           tipe: 'pengumuman',
           waktu: 'Baru saja',
           dibaca: false,
@@ -1339,7 +1287,9 @@ class DataStorageService {
     this.db = cleanDb;
     this.saveToLocalStorage(cleanDb);
     this.notify();
-    this.seedAllToFirestore();
+    if (this.isFirebaseEnabled) {
+      this.seedAllToFirestore();
+    }
   }
 
   // ==========================================

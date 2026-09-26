@@ -21,10 +21,22 @@ import {
   BookOpen,
   Upload,
   Activity,
+  FileText,
+  Code2,
+  Globe,
+  ExternalLink,
+  Key,
+  KeyRound,
+  Copy,
+  Lock,
+  LogOut,
+  Timer,
+  ShieldCheck,
 } from 'lucide-react';
-import { Quiz, Soal, JawabanQuiz, User, NotifikasiItem, getTeacherAssignedClasses } from '../../types';
+import { Quiz, Soal, JawabanQuiz, User, NotifikasiItem, getTeacherAssignedClasses, TipeSoal } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { UploadDataModal } from './UploadDataModal';
+import { InAppQuizViewerModal } from './InAppQuizViewerModal';
 
 interface QuizManagerProps {
   db: LMSDatabase;
@@ -52,6 +64,38 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
   const [activeJawabanDetail, setActiveJawabanDetail] = useState<JawabanQuiz | null>(null);
+
+  // In-App External Quiz Link Viewer Modal State
+  const [inAppViewerState, setInAppViewerState] = useState<{
+    isOpen: boolean;
+    url: string;
+    title: string;
+    type?: 'google-form' | 'appscript' | 'aplikasi-lain';
+    subtitle?: string;
+  }>({
+    isOpen: false,
+    url: '',
+    title: '',
+  });
+
+  const handleOpenInAppPreview = (
+    url: string,
+    title: string,
+    type?: 'google-form' | 'appscript' | 'aplikasi-lain',
+    subtitle?: string
+  ) => {
+    if (!url || !url.trim()) {
+      alert('Masukkan tautan URL terlebih dahulu untuk melakukan pratinjau di aplikasi.');
+      return;
+    }
+    setInAppViewerState({
+      isOpen: true,
+      url: url.trim(),
+      title,
+      type: type || 'aplikasi-lain',
+      subtitle,
+    });
+  };
 
   const handleImportBankSoal = (importedSoal: Soal[]) => {
     if (isModalOpen) {
@@ -233,6 +277,10 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
       acakSoal: true,
       acakJawaban: true,
       tampilkanPembahasan: true,
+      kunciMasuk: '',
+      gunakanTokenKeluar: false,
+      tokenKeluar: '',
+      waktuMunculTokenKeluarMenit: 10,
       kelasIds: availableClasses.map((k) => k.id),
       soal: [
         {
@@ -262,6 +310,10 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
 
     setForm({
       ...q,
+      kunciMasuk: q.kunciMasuk || '',
+      gunakanTokenKeluar: Boolean(q.gunakanTokenKeluar || q.tokenKeluar),
+      tokenKeluar: q.tokenKeluar || '',
+      waktuMunculTokenKeluarMenit: q.waktuMunculTokenKeluarMenit ?? 10,
       jamMulai: q.jamMulai || '07:00',
       jamSelesai: q.jamSelesai || '07:20',
       zonaWaktu: q.zonaWaktu || 'WITA',
@@ -287,6 +339,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
     }));
 
     const finalStatus = form.status === 'Draft' || form.statusPublikasi === 'Draft' ? 'Draft' : 'Publish';
+    const cleanKunciMasuk = form.kunciMasuk ? form.kunciMasuk.trim().toUpperCase() : undefined;
+    const cleanTokenKeluar = form.gunakanTokenKeluar && form.tokenKeluar ? form.tokenKeluar.trim().toUpperCase() : undefined;
+    const cleanWaktuMuncul = form.gunakanTokenKeluar ? Math.max(1, Number(form.waktuMunculTokenKeluarMenit) || 10) : undefined;
 
     if (editingQuiz) {
       dataStorage.updateDatabase((prev) => ({
@@ -296,6 +351,10 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
             ? ({
                 ...item,
                 ...form,
+                kunciMasuk: cleanKunciMasuk,
+                gunakanTokenKeluar: Boolean(cleanTokenKeluar),
+                tokenKeluar: cleanTokenKeluar,
+                waktuMunculTokenKeluarMenit: cleanWaktuMuncul,
                 status: finalStatus as any,
                 statusPublikasi: finalStatus as any,
                 soal: currentQuestions,
@@ -309,7 +368,7 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
         const notif: NotifikasiItem = {
           id: `notif-qz-${Date.now()}`,
           judul: `Ujian/Quiz PJOK: ${form.judul || editingQuiz.judul}`,
-          pesan: `${currentUser.name} memperbarui ${form.judul || editingQuiz.judul}. Silakan persiapkan diri dan kerjakan soal.`,
+          pesan: `${currentUser.name} memperbarui ${form.judul || editingQuiz.judul}. Silakan persiapkan diri dan kerjakan soal.${cleanKunciMasuk ? ` [Kunci: ${cleanKunciMasuk}]` : ''}`,
           waktu: 'Baru saja',
           tipe: 'quiz',
           dibaca: false,
@@ -333,6 +392,10 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
         acakSoal: Boolean(form.acakSoal),
         acakJawaban: Boolean(form.acakJawaban),
         tampilkanPembahasan: Boolean(form.tampilkanPembahasan),
+        kunciMasuk: cleanKunciMasuk,
+        gunakanTokenKeluar: Boolean(cleanTokenKeluar),
+        tokenKeluar: cleanTokenKeluar,
+        waktuMunculTokenKeluarMenit: cleanWaktuMuncul,
         kelasIds: form.kelasIds && form.kelasIds.length > 0 ? form.kelasIds : availableClasses.map((k) => k.id),
         status: finalStatus,
         statusPublikasi: finalStatus,
@@ -350,7 +413,7 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
         const notif: NotifikasiItem = {
           id: `notif-qz-${Date.now()}`,
           judul: `Ujian/Quiz Baru: ${newQ.judul}`,
-          pesan: `${currentUser.name} mempublikasikan ${newQ.judul} (${newQ.durasiMenit} menit). Silakan mulai mengerjakan.`,
+          pesan: `${currentUser.name} mempublikasikan ${newQ.judul} (${newQ.durasiMenit} menit).${cleanKunciMasuk ? ` Kunci Masuk: ${cleanKunciMasuk}.` : ''} Silakan mulai mengerjakan.`,
           waktu: 'Baru saja',
           tipe: 'quiz',
           dibaca: false,
@@ -375,16 +438,40 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
   };
 
   // Helpers for question editor inside modal
-  const handleAddQuestion = () => {
+  const handleAddQuestion = (type: TipeSoal = 'Pilihan Ganda') => {
+    let defaultPertanyaan = '';
+    let defaultKey = '';
+    let defaultLinkType: 'google-form' | 'appscript' | 'aplikasi-lain' | undefined;
+    let defaultPilihan: string[] = ['', '', '', '', ''];
+
+    if (type === 'Link Google Form') {
+      defaultPertanyaan = 'Silakan kerjakan asesmen butir soal melalui formulir Google Form tersemat berikut:';
+      defaultKey = 'Selesai';
+      defaultLinkType = 'google-form';
+      defaultPilihan = [];
+    } else if (type === 'Link AppScript') {
+      defaultPertanyaan = 'Silakan kerjakan aplikasi soal interaktif Google Apps Script (AppScript) berikut:';
+      defaultKey = 'Selesai';
+      defaultLinkType = 'appscript';
+      defaultPilihan = [];
+    } else if (type === 'Link Aplikasi Lainnya') {
+      defaultPertanyaan = 'Silakan kerjakan butir soal interaktif melalui tautan aplikasi kuis berikut:';
+      defaultKey = 'Selesai';
+      defaultLinkType = 'aplikasi-lain';
+      defaultPilihan = [];
+    }
+
     const newQuestions = [
       ...(form.soal || []),
       {
-        id: `soal-${Date.now()}`,
+        id: `soal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         nomor: (form.soal?.length || 0) + 1,
-        pertanyaan: '',
-        tipe: 'Pilihan Ganda' as const,
-        pilihan: ['', '', '', '', ''],
-        kunciJawaban: '',
+        pertanyaan: defaultPertanyaan,
+        tipe: type,
+        tipeLink: defaultLinkType,
+        linkEksternal: '',
+        pilihan: defaultPilihan,
+        kunciJawaban: defaultKey,
         pembahasan: '',
         bobot: 20,
       } as any,
@@ -418,6 +505,8 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
     let newKey = curr.kunciJawaban || '';
     let newPairs = curr.matchingPairs;
     let newGambar = curr.gambarUrl;
+    let updatedTipeLink = curr.tipeLink;
+    let updatedLink = curr.linkEksternal || '';
 
     if (newType === 'Pilihan Ganda') {
       if (!newPilihan || newPilihan.length < 5) {
@@ -460,6 +549,27 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
       if (!newKey || newKey.includes('=')) {
         newKey = '';
       }
+    } else if (newType === 'Link Google Form') {
+      newPilihan = [];
+      updatedTipeLink = 'google-form';
+      if (!curr.pertanyaan) {
+        curr.pertanyaan = 'Silakan kerjakan asesmen butir soal melalui formulir Google Form tersemat berikut:';
+      }
+      if (!newKey) newKey = 'Selesai';
+    } else if (newType === 'Link AppScript') {
+      newPilihan = [];
+      updatedTipeLink = 'appscript';
+      if (!curr.pertanyaan) {
+        curr.pertanyaan = 'Silakan kerjakan aplikasi soal interaktif Google Apps Script (AppScript) berikut:';
+      }
+      if (!newKey) newKey = 'Selesai';
+    } else if (newType === 'Link Aplikasi Lainnya') {
+      newPilihan = [];
+      updatedTipeLink = 'aplikasi-lain';
+      if (!curr.pertanyaan) {
+        curr.pertanyaan = 'Silakan kerjakan butir soal interaktif melalui tautan aplikasi kuis berikut:';
+      }
+      if (!newKey) newKey = 'Selesai';
     }
 
     newQuestions[index] = {
@@ -469,6 +579,8 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
       kunciJawaban: newKey,
       matchingPairs: newPairs,
       gambarUrl: newGambar,
+      tipeLink: updatedTipeLink,
+      linkEksternal: updatedLink,
     };
     setForm({ ...form, soal: newQuestions });
   };
@@ -682,6 +794,53 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
                               Pembahasan Aktif
                             </span>
                           )}
+                          {questionList.some((s) => s.linkEksternal || s.tipe?.startsWith('Link')) && (
+                            <span className="px-2.5 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg text-[10px] font-extrabold flex items-center gap-1">
+                              <Globe className="w-3 h-3 text-blue-600" />
+                              Tautan Interaktif (Di Aplikasi)
+                            </span>
+                          )}
+
+                          {/* Kunci / Token Kuis Badge */}
+                          {q.kunciMasuk ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(q.kunciMasuk || '');
+                                alert(`Kunci Kuis "${q.kunciMasuk}" disalin ke clipboard! Bagikan kepada murid saat ujian dimulai.`);
+                              }}
+                              className="px-2.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                              title="Klik untuk menyalin Kunci / Token Kuis"
+                            >
+                              <Key className="w-3 h-3 text-amber-700" />
+                              <span>Kunci: <strong className="font-mono text-amber-950 tracking-wider">{q.kunciMasuk}</strong></span>
+                              <Copy className="w-2.5 h-2.5 text-amber-600 ml-0.5" />
+                            </button>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-medium flex items-center gap-1">
+                              <KeyRound className="w-3 h-3 text-slate-400" />
+                              Tanpa Kunci
+                            </span>
+                          )}
+
+                          {/* Token Keluar Badge */}
+                          {q.tokenKeluar ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(q.tokenKeluar || '');
+                                alert(`Token Keluar "${q.tokenKeluar}" disalin! Token ini akan muncul otomatis di layar murid setelah ${q.waktuMunculTokenKeluarMenit || 10} menit.`);
+                              }}
+                              className="px-2.5 py-0.5 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                              title="Klik untuk menyalin Token Keluar"
+                            >
+                              <LogOut className="w-3 h-3 text-teal-700" />
+                              <span>Token Keluar: <strong className="font-mono text-teal-950 tracking-wider">{q.tokenKeluar}</strong> (Otomatis: Menit ke-{q.waktuMunculTokenKeluarMenit || 10})</span>
+                              <Copy className="w-2.5 h-2.5 text-teal-600 ml-0.5" />
+                            </button>
+                          ) : null}
                         </div>
 
                         <div className="flex items-center gap-1.5">
@@ -756,21 +915,46 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
                     </div>
 
                     {/* Footer */}
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs flex-wrap gap-2">
                       <span className="text-slate-500 text-[11px]">
                         Dikerjakan oleh: <strong className="text-slate-800">{attempts.length} Murid</strong>
                       </span>
 
-                      <button
-                        onClick={() => {
-                          setSelectedQuizId(q.id);
-                          setSelectedTab('hasil');
-                        }}
-                        className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors"
-                      >
-                        <Award className="w-3.5 h-3.5" />
-                        Lihat Nilai Murid
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        {questionList.some((s) => s.linkEksternal || s.tipe?.startsWith('Link')) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const linkSoal = questionList.find((s) => s.linkEksternal || s.tipe?.startsWith('Link'));
+                              if (linkSoal && linkSoal.linkEksternal) {
+                                handleOpenInAppPreview(
+                                  linkSoal.linkEksternal,
+                                  linkSoal.judulLink || q.judul,
+                                  linkSoal.tipeLink || (linkSoal.tipe === 'Link Google Form' ? 'google-form' : linkSoal.tipe === 'Link AppScript' ? 'appscript' : 'aplikasi-lain'),
+                                  q.materiJudul
+                                );
+                              } else {
+                                alert('Tautan soal belum diisi.');
+                              }
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Buka dan uji soal berbasis link eksternal langsung di dalam aplikasi"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Buka di Aplikasi</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setSelectedQuizId(q.id);
+                            setSelectedTab('hasil');
+                          }}
+                          className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Award className="w-3.5 h-3.5" />
+                          Lihat Nilai Murid
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1175,27 +1359,299 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
                 </label>
               </div>
 
-              {/* Soal List Editor */}
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-slate-800 text-sm">
-                    Daftar Butir Soal ({(form.soal || []).length})
-                  </span>
+              {/* Kunci / Token Akses Kuis */}
+              <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold shadow-2xs border border-amber-200">
+                      <Key className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-extrabold text-slate-800 block flex items-center gap-1.5">
+                        Kunci / Token Akses Kuis (Wajib Dimasukkan Murid)
+                      </span>
+                      <span className="text-[11px] text-slate-600 font-medium">
+                        Murid tidak dapat langsung mengerjakan sebelum memasukkan kunci/token yang tepat.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setIsUploadModalOpen(true)}
-                      className="px-3 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold rounded-lg text-xs flex items-center gap-1"
+                      onClick={() => {
+                        const randomCode = 'PJOK' + Math.floor(1000 + Math.random() * 9000);
+                        setForm({ ...form, kunciMasuk: randomCode });
+                      }}
+                      className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1 border border-amber-300"
                     >
-                      <Upload className="w-3.5 h-3.5 text-purple-600" />
-                      <span>Upload Soal</span>
+                      <Sparkles className="w-3.5 h-3.5" /> Acak Token Baru
+                    </button>
+                    {form.kunciMasuk && (
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, kunciMasuk: '' })}
+                        className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                      >
+                        Hapus Kunci
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                      Ketik Kunci Akses / Token (Huruf Besar & Angka):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: PJOK88 / KUIS2026 (Kosongkan jika tanpa kunci)"
+                      value={form.kunciMasuk || ''}
+                      onChange={(e) => setForm({ ...form, kunciMasuk: e.target.value.toUpperCase() })}
+                      className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl font-mono font-black text-amber-950 text-xs focus:ring-2 focus:ring-amber-400 focus:outline-hidden uppercase tracking-widest"
+                    />
+                  </div>
+                  <div className="flex items-center text-[11px] text-amber-900 leading-snug">
+                    {form.kunciMasuk?.trim() ? (
+                      <div className="bg-amber-100/80 p-2.5 rounded-xl border border-amber-300 text-[11px] font-medium flex items-start gap-2 w-full">
+                        <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold text-amber-950">
+                            Kuis Terproteksi Kunci: <span className="font-mono tracking-wider font-black text-amber-900">{form.kunciMasuk.trim()}</span>
+                          </p>
+                          <p className="text-amber-800 text-[10.5px]">
+                            Bagikan kunci ini kepada murid di kelas saat waktu pengerjaan dimulai.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-100/80 p-2.5 rounded-xl border border-slate-200 text-slate-500 text-[11px] w-full">
+                        🔓 <strong>Mode Tanpa Kunci</strong>: Murid dapat langsung memulai kuis tanpa dimintai token.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Token Keluar Ujian Otomatis (Exit Token) */}
+              <div className="bg-gradient-to-r from-teal-50 via-emerald-50 to-cyan-50 p-4 rounded-2xl border border-teal-200/80 shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-teal-200/60 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                      <LogOut className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-teal-950 text-sm">
+                          Token Keluar Ujian Otomatis (Layar Murid)
+                        </span>
+                        <span className="px-2 py-0.5 bg-teal-200/80 text-teal-900 rounded-md text-[10px] font-black tracking-wide">
+                          ANTI-SUBMIT TERBURU-BURU
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-teal-800 font-medium block">
+                        Kunci selesai ujian agar murid tidak langsung mengumpulkan. Atur waktu kapan token keluar akan muncul otomatis di layar murid.
+                      </span>
+                    </div>
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 cursor-pointer self-start sm:self-auto bg-white px-3 py-1.5 rounded-xl border border-teal-300 shadow-2xs hover:bg-teal-50/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.gunakanTokenKeluar)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const defaultCode = form.tokenKeluar || 'OUT' + Math.floor(1000 + Math.random() * 9000);
+                        setForm({
+                          ...form,
+                          gunakanTokenKeluar: checked,
+                          tokenKeluar: checked ? defaultCode : form.tokenKeluar,
+                          waktuMunculTokenKeluarMenit: form.waktuMunculTokenKeluarMenit || 10,
+                        });
+                      }}
+                      className="w-4 h-4 text-teal-600 rounded-sm focus:ring-teal-500 border-slate-300"
+                    />
+                    <span className="text-xs font-bold text-teal-950">
+                      Aktifkan Token Keluar
+                    </span>
+                  </label>
+                </div>
+
+                {form.gunakanTokenKeluar ? (
+                  <div className="space-y-3 pt-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Token String */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-teal-950">
+                            Kode Token Keluar (Huruf Besar & Angka):
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const randomCode = 'OUT' + Math.floor(1000 + Math.random() * 9000);
+                              setForm({ ...form, tokenKeluar: randomCode });
+                            }}
+                            className="text-[10px] text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1 bg-teal-100/70 hover:bg-teal-200/80 px-2 py-0.5 rounded-lg border border-teal-300 cursor-pointer transition-colors"
+                          >
+                            <Sparkles className="w-3 h-3" /> Acak Kode
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Contoh: OUT88 / SELESAI2026"
+                          value={form.tokenKeluar || ''}
+                          onChange={(e) => setForm({ ...form, tokenKeluar: e.target.value.toUpperCase() })}
+                          className="w-full px-3 py-2 bg-white border border-teal-300 rounded-xl font-mono font-black text-teal-950 text-xs focus:ring-2 focus:ring-teal-400 focus:outline-hidden uppercase tracking-widest"
+                        />
+                        <span className="text-[10px] text-teal-700 block">
+                          Kode yang harus diisi untuk menyelesaikan/mengirim jawaban ujian.
+                        </span>
+                      </div>
+
+                      {/* Waktu Muncul Token Otomatis */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-teal-950">
+                            Atur Waktu Muncul Otomatis di Layar Murid:
+                          </label>
+                          <span className="text-[10px] text-teal-800 font-bold bg-teal-100/80 px-2 py-0.5 rounded-md border border-teal-200">
+                            Menit ke-{form.waktuMunculTokenKeluarMenit || 10}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <input
+                              type="number"
+                              min="1"
+                              max={form.durasiMenit || 120}
+                              value={form.waktuMunculTokenKeluarMenit ?? 10}
+                              onChange={(e) =>
+                                setForm({
+                                  ...form,
+                                  waktuMunculTokenKeluarMenit: Math.max(1, Number(e.target.value) || 1),
+                                })
+                              }
+                              className="w-full px-3 py-2 bg-white border border-teal-300 rounded-xl font-bold text-teal-950 text-xs focus:ring-2 focus:ring-teal-400 focus:outline-hidden pr-14"
+                            />
+                            <span className="absolute right-3 top-2 text-xs font-bold text-teal-700 pointer-events-none">
+                              Menit
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Quick presets */}
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <span className="text-[10px] text-slate-500 font-medium">Preset:</span>
+                          {[5, 10, 15].map((menit) => (
+                            <button
+                              key={menit}
+                              type="button"
+                              onClick={() => setForm({ ...form, waktuMunculTokenKeluarMenit: menit })}
+                              className={`px-2 py-0.5 text-[10px] font-bold rounded-md border cursor-pointer transition-colors ${
+                                form.waktuMunculTokenKeluarMenit === menit
+                                  ? 'bg-teal-700 text-white border-teal-700'
+                                  : 'bg-white text-teal-800 border-teal-300 hover:bg-teal-100'
+                              }`}
+                            >
+                              {menit} Menit
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const half = Math.max(1, Math.round((Number(form.durasiMenit) || 20) / 2));
+                              setForm({ ...form, waktuMunculTokenKeluarMenit: half });
+                            }}
+                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md border cursor-pointer transition-colors ${
+                              form.waktuMunculTokenKeluarMenit === Math.max(1, Math.round((Number(form.durasiMenit) || 20) / 2))
+                                ? 'bg-teal-700 text-white border-teal-700'
+                                : 'bg-white text-teal-800 border-teal-300 hover:bg-teal-100'
+                            }`}
+                          >
+                            50% Durasi ({Math.max(1, Math.round((Number(form.durasiMenit) || 20) / 2))} Menit)
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Live explanation preview */}
+                    <div className="p-3 bg-white/80 rounded-xl border border-teal-200 text-[11px] text-teal-900 flex items-start gap-2.5">
+                      <Clock className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-teal-950">
+                          Mekanisme di Layar Murid:
+                        </p>
+                        <p className="text-teal-800 leading-relaxed text-[11px] mt-0.5">
+                          1. Selama <strong>{form.waktuMunculTokenKeluarMenit || 10} menit</strong> pertama pengerjaan, murid tidak bisa mengumpulkan jawaban ujian sembarangan. Di layar murid akan terlihat hitung mundur waktu token keluar.
+                          <br />
+                          2. Setelah pengerjaan mencapai <strong>menit ke-{form.waktuMunculTokenKeluarMenit || 10}</strong>, Token Keluar <span className="font-mono font-black text-teal-950 px-1.5 py-0.5 bg-teal-100 rounded border border-teal-300">{form.tokenKeluar || 'OUT88'}</span> akan <strong>otomatis ditampilkan di layar murid</strong> beserta tombol instan untuk mengumpulkan ujian.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-white/60 rounded-xl border border-teal-200/50 text-[11px] text-slate-500 flex items-center gap-2">
+                    <LogOut className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span>
+                      🔓 <strong>Token Keluar Nonaktif</strong>: Murid dapat mengumpulkan ujian kapan saja tanpa batasan token selesai.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Soal List Editor */}
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                  <div>
+                    <span className="font-extrabold text-slate-800 text-sm block">
+                      Daftar Butir Soal ({(form.soal || []).length})
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      Pilihan membuat butir soal manual, atau tautkan Link Google Form, AppScript & Aplikasi soal (terbuka di dalam aplikasi).
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleAddQuestion('Pilihan Ganda')}
+                      className="px-2.5 py-1.5 bg-white text-purple-700 hover:bg-purple-50 font-bold rounded-xl text-xs flex items-center gap-1 border border-purple-200 cursor-pointer shadow-2xs"
+                      title="Tambah butir soal reguler / manual"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> + Soal Manual
                     </button>
                     <button
                       type="button"
-                      onClick={handleAddQuestion}
-                      className="px-3 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 font-bold rounded-lg text-xs flex items-center gap-1"
+                      onClick={() => handleAddQuestion('Link Google Form')}
+                      className="px-2.5 py-1.5 bg-purple-600 text-white hover:bg-purple-700 font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="Tambah soal Google Form (terbuka langsung di dalam aplikasi)"
                     >
-                      <Plus className="w-3.5 h-3.5" /> Tambah Soal
+                      <FileText className="w-3.5 h-3.5" /> + Google Form
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddQuestion('Link AppScript')}
+                      className="px-2.5 py-1.5 bg-blue-600 text-white hover:bg-blue-700 font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="Tambah soal Google Apps Script (AppScript)"
+                    >
+                      <Code2 className="w-3.5 h-3.5" /> + AppScript
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddQuestion('Link Aplikasi Lainnya')}
+                      className="px-2.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="Tambah soal aplikasi lainnya (Wordwall, Quizizz, dsb.)"
+                    >
+                      <Globe className="w-3.5 h-3.5" /> + Aplikasi Lain
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsUploadModalOpen(true)}
+                      className="px-2.5 py-1.5 bg-slate-200/80 text-slate-700 hover:bg-slate-300 font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-purple-700" />
+                      <span>Upload</span>
                     </button>
                   </div>
                 </div>
@@ -1216,11 +1672,18 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
                             onChange={(e) => handleTypeChange(qIdx, e.target.value)}
                             className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-purple-400 focus:outline-hidden"
                           >
-                            <option value="Pilihan Ganda">Pilihan Ganda (A s.d. E)</option>
-                            <option value="Benar/Salah">Benar / Salah (Kartu Taktil)</option>
-                            <option value="Mencocokkan Gambar">Mencocokkan Gambar (Teknik Motorik)</option>
-                            <option value="Tarik Garis">Tarik Garis (Kolom A & B)</option>
-                            <option value="Isian">Isian Singkat & Analisis Gerak</option>
+                            <optgroup label="Soal Internal / Manual">
+                              <option value="Pilihan Ganda">Pilihan Ganda (A s.d. E)</option>
+                              <option value="Benar/Salah">Benar / Salah (Kartu Taktil)</option>
+                              <option value="Mencocokkan Gambar">Mencocokkan Gambar (Teknik Motorik)</option>
+                              <option value="Tarik Garis">Tarik Garis (Kolom A & B)</option>
+                              <option value="Isian">Isian Singkat & Analisis Gerak</option>
+                            </optgroup>
+                            <optgroup label="Tautan Soal (Buka di Aplikasi)">
+                              <option value="Link Google Form">📄 Link Google Form (Di Aplikasi)</option>
+                              <option value="Link AppScript">⚡ Link Google Apps Script (AppScript)</option>
+                              <option value="Link Aplikasi Lainnya">🌐 Link Aplikasi Soal Lainnya (Wordwall/Quizizz/dll)</option>
+                            </optgroup>
                           </select>
 
                           <select
@@ -1529,20 +1992,314 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
                         </div>
                       )}
 
-                      {/* Kunci Jawaban Indicator / Override */}
-                      {s.tipe !== 'Tarik Garis' && s.tipe !== 'Isian' && (
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-0.5">
-                            Kunci Jawaban Terpilih *
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Pilih dari tombol di atas atau ketik kunci..."
-                            value={s.kunciJawaban}
-                            onChange={(e) => handleQuestionChange(qIdx, 'kunciJawaban', e.target.value)}
-                            className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-emerald-800"
-                          />
+                      {/* 6. Link Google Form (Terbuka di Dalam Aplikasi) */}
+                      {s.tipe === 'Link Google Form' && (
+                        <div className="space-y-3 bg-white p-3.5 rounded-xl border border-purple-200 shadow-xs">
+                          <div className="flex items-center justify-between gap-2 border-b border-purple-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                                <FileText className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-purple-900 block">
+                                  Tautan Formulir Google Form
+                                </span>
+                                <span className="text-[10px] text-purple-600 font-medium">
+                                  Terbuka dan dapat dikerjakan murid langsung di dalam frame aplikasi ini.
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenInAppPreview(
+                                  s.linkEksternal || '',
+                                  s.judulLink || 'Pratinjau Google Form Soal',
+                                  'google-form',
+                                  'Uji Tampilan Google Form di Dalam Aplikasi'
+                                )
+                              }
+                              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> Uji Buka di Aplikasi
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Judul / Nama Form Soal:
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Contoh: Asesmen Harian Bab Kebugaran Jasmani"
+                                value={s.judulLink || ''}
+                                onChange={(e) => handleQuestionChange(qIdx, 'judulLink', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                URL Link Google Form: *
+                              </label>
+                              <input
+                                type="url"
+                                required
+                                placeholder="https://docs.google.com/forms/d/e/.../viewform"
+                                value={s.linkEksternal || ''}
+                                onChange={(e) => handleQuestionChange(qIdx, 'linkEksternal', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-purple-50/50 border border-purple-300 rounded-lg text-xs font-mono text-purple-900"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Quick Preset / Format Helpers */}
+                          <div className="flex items-center gap-2 flex-wrap pt-1">
+                            <span className="text-[10px] font-bold text-slate-400">Pilihan Cepat:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sample = 'https://docs.google.com/forms/d/e/1FAIpQLScP_sample_pjok/viewform?embedded=true';
+                                handleQuestionChange(qIdx, 'linkEksternal', sample);
+                                if (!s.judulLink) handleQuestionChange(qIdx, 'judulLink', 'Kuis PJOK Form Template');
+                              }}
+                              className="px-2 py-0.5 bg-slate-100 hover:bg-purple-100 text-slate-700 hover:text-purple-800 text-[10px] rounded font-semibold transition-colors"
+                            >
+                              Gunakan Contoh Template Form
+                            </button>
+                            {s.linkEksternal && !s.linkEksternal.includes('embedded=true') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  let u = s.linkEksternal || '';
+                                  u += u.includes('?') ? '&embedded=true' : '?embedded=true';
+                                  handleQuestionChange(qIdx, 'linkEksternal', u);
+                                }}
+                                className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[10px] rounded font-bold hover:bg-purple-200 transition-colors"
+                              >
+                                + Format Otomatis Embed (?embedded=true)
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 7. Link AppScript (Terbuka di Dalam Aplikasi) */}
+                      {s.tipe === 'Link AppScript' && (
+                        <div className="space-y-3 bg-white p-3.5 rounded-xl border border-blue-200 shadow-xs">
+                          <div className="flex items-center justify-between gap-2 border-b border-blue-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                                <Code2 className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-blue-900 block">
+                                  Tautan Web App Google Apps Script (AppScript)
+                                </span>
+                                <span className="text-[10px] text-blue-600 font-medium">
+                                  Menjalankan web app interaktif soal Apps Script langsung di dalam frame LMS.
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenInAppPreview(
+                                  s.linkEksternal || '',
+                                  s.judulLink || 'Pratinjau AppScript Interaktif',
+                                  'appscript',
+                                  'Uji Tampilan Web App Apps Script di Dalam Aplikasi'
+                                )
+                              }
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> Uji Buka di Aplikasi
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Judul / Modul AppScript:
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Contoh: Asesmen Interaktif GAS Gerak Motorik"
+                                value={s.judulLink || ''}
+                                onChange={(e) => handleQuestionChange(qIdx, 'judulLink', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                URL Web App Apps Script (/exec): *
+                              </label>
+                              <input
+                                type="url"
+                                required
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={s.linkEksternal || ''}
+                                onChange={(e) => handleQuestionChange(qIdx, 'linkEksternal', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-blue-50/50 border border-blue-300 rounded-lg text-xs font-mono text-blue-900"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap pt-1">
+                            <span className="text-[10px] font-bold text-slate-400">Pilihan Cepat:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sample = 'https://script.google.com/macros/s/AKfycbw_sample_appscript/exec';
+                                handleQuestionChange(qIdx, 'linkEksternal', sample);
+                                if (!s.judulLink) handleQuestionChange(qIdx, 'judulLink', 'Aplikasi Soal Interaktif GAS');
+                              }}
+                              className="px-2 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 text-[10px] rounded font-semibold transition-colors"
+                            >
+                              Gunakan Contoh URL Apps Script
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 8. Link Aplikasi Lainnya (Terbuka di Dalam Aplikasi) */}
+                      {s.tipe === 'Link Aplikasi Lainnya' && (
+                        <div className="space-y-3 bg-white p-3.5 rounded-xl border border-emerald-200 shadow-xs">
+                          <div className="flex items-center justify-between gap-2 border-b border-emerald-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                                <Globe className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-emerald-900 block">
+                                  Tautan Aplikasi Soal Lainnya (Wordwall / Quizizz / dll)
+                                </span>
+                                <span className="text-[10px] text-emerald-600 font-medium">
+                                  Aplikasi kuis eksternal interaktif yang disematkan langsung di dalam LMS.
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenInAppPreview(
+                                  s.linkEksternal || '',
+                                  s.judulLink || 'Pratinjau Kuis Aplikasi Eksternal',
+                                  'aplikasi-lain',
+                                  'Uji Tampilan Aplikasi Kuis di Dalam LMS'
+                                )
+                              }
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> Uji Buka di Aplikasi
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Judul / Nama Aplikasi Kuis:
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Contoh: Game Wordwall Senam Irama / Quizizz Live"
+                                value={s.judulLink || ''}
+                                onChange={(e) => handleQuestionChange(qIdx, 'judulLink', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                URL Tautan Kuis Aplikasi: *
+                              </label>
+                              <input
+                                type="url"
+                                required
+                                placeholder="https://wordwall.net/embed/... atau https://quizizz.com/..."
+                                value={s.linkEksternal || ''}
+                                onChange={(e) => handleQuestionChange(qIdx, 'linkEksternal', e.target.value)}
+                                className="w-full px-3 py-1.5 bg-emerald-50/50 border border-emerald-300 rounded-lg text-xs font-mono text-emerald-900"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Quick Platform Presets */}
+                          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                            <span className="text-[10px] font-bold text-slate-400">Pilihan Aplikasi Cepat:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleQuestionChange(qIdx, 'linkEksternal', 'https://wordwall.net/embed/resource/12345/pjok');
+                                handleQuestionChange(qIdx, 'judulLink', 'Kuis Wordwall Interaktif PJOK');
+                              }}
+                              className="px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-bold transition-colors"
+                            >
+                              Wordwall Embed
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleQuestionChange(qIdx, 'linkEksternal', 'https://quizizz.com/join?gc=pjok');
+                                handleQuestionChange(qIdx, 'judulLink', 'Quizizz Online PJOK');
+                              }}
+                              className="px-2 py-0.5 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded text-[10px] font-bold transition-colors"
+                            >
+                              Quizizz
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleQuestionChange(qIdx, 'linkEksternal', 'https://kahoot.it');
+                                handleQuestionChange(qIdx, 'judulLink', 'Kahoot Challenge PJOK');
+                              }}
+                              className="px-2 py-0.5 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded text-[10px] font-bold transition-colors"
+                            >
+                              Kahoot
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleQuestionChange(qIdx, 'linkEksternal', 'https://www.liveworksheets.com');
+                                handleQuestionChange(qIdx, 'judulLink', 'Liveworksheets Interaktif');
+                              }}
+                              className="px-2 py-0.5 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded text-[10px] font-bold transition-colors"
+                            >
+                              Liveworksheets
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Kunci Jawaban Indicator / Override (Hanya untuk soal manual selain tarik garis, isian, dan link eksternal) */}
+                      {s.tipe !== 'Tarik Garis' &&
+                        s.tipe !== 'Isian' &&
+                        s.tipe !== 'Link Google Form' &&
+                        s.tipe !== 'Link AppScript' &&
+                        s.tipe !== 'Link Aplikasi Lainnya' && (
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">
+                              Kunci Jawaban Terpilih *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Pilih dari tombol di atas atau ketik kunci..."
+                              value={s.kunciJawaban}
+                              onChange={(e) => handleQuestionChange(qIdx, 'kunciJawaban', e.target.value)}
+                              className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-emerald-800"
+                            />
+                          </div>
+                        )}
+
+                      {/* Status Otomatis untuk Soal Berbasis Tautan */}
+                      {(s.tipe === 'Link Google Form' ||
+                        s.tipe === 'Link AppScript' ||
+                        s.tipe === 'Link Aplikasi Lainnya') && (
+                        <div className="flex items-center gap-2 p-2 bg-slate-100 rounded-xl text-[11px] text-slate-600 font-medium">
+                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            Soal link eksternal otomatis bernilai tuntas saat murid menandai dan mengonfirmasi pengerjaan di lembar tersemat.
+                          </span>
                         </div>
                       )}
                     </div>
@@ -1575,6 +2332,16 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
         onClose={() => setIsUploadModalOpen(false)}
         type="bankSoal"
         onImport={handleImportBankSoal}
+      />
+
+      {/* In-App Quiz Viewer Modal (Terbuka di dalam Aplikasi) */}
+      <InAppQuizViewerModal
+        isOpen={inAppViewerState.isOpen}
+        onClose={() => setInAppViewerState((prev) => ({ ...prev, isOpen: false }))}
+        url={inAppViewerState.url}
+        title={inAppViewerState.title}
+        type={inAppViewerState.type}
+        subtitle={inAppViewerState.subtitle}
       />
     </div>
   );

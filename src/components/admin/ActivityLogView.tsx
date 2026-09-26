@@ -162,11 +162,6 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({
     showToast(res.message, 'success');
   };
 
-  const handleSeedSampleStudents = () => {
-    dataStorage.seedSampleStudents();
-    showToast('Berhasil memulihkan 3 akun murid percontohan yang siap digunakan login.', 'success');
-  };
-
   const handleActivateStudent = (userId: string, name: string) => {
     dataStorage.updateDatabase((prev) => ({
       ...prev,
@@ -344,16 +339,6 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({
                 <Wrench className="w-3.5 h-3.5" />
                 <span>Perbaiki Otomatis</span>
               </button>
-              {metrics.totalMurid === 0 && (
-                <button
-                  type="button"
-                  onClick={handleSeedSampleStudents}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Pulihkan Murid Contoh</span>
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -628,16 +613,6 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({
                   <Wrench className="w-4 h-4" />
                   <span>Perbaiki Semua Akun Murid</span>
                 </button>
-                {metrics.totalMurid === 0 && (
-                  <button
-                    type="button"
-                    onClick={handleSeedSampleStudents}
-                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Pulihkan 3 Murid Contoh</span>
-                  </button>
-                )}
               </div>
             </div>
           </div>
@@ -671,19 +646,9 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({
                 <p className="text-xs font-bold text-slate-700">Tidak ada akun murid ditemukan</p>
                 <p className="text-[11px] text-slate-500 mt-1">
                   {muridList.length === 0
-                    ? 'Database murid saat ini kosong. Klik tombol "Pulihkan 3 Murid Contoh" di atas untuk membuat akun awal.'
+                    ? 'Database murid saat ini bersih (0 akun). Silakan impor data murid dari menu Manajemen Murid.'
                     : 'Coba periksa kembali ejaan nama atau NIS murid yang dicari.'}
                 </p>
-                {muridList.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={handleSeedSampleStudents}
-                    className="mt-3 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Buat Akun Murid Default</span>
-                  </button>
-                )}
               </div>
             ) : (
               <div className="overflow-x-auto">

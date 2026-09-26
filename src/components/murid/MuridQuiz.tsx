@@ -26,6 +26,18 @@ import {
   AlertTriangle,
   Timer,
   Play,
+  FileText,
+  Code2,
+  Globe,
+  ExternalLink,
+  RotateCw,
+  Maximize2,
+  Minimize2,
+  ShieldCheck,
+  Key,
+  KeyRound,
+  Copy,
+  X,
 } from 'lucide-react';
 import { parseDeadlineToDate, formatTimeRemaining } from '../../utils/deadlineNotification';
 import {
@@ -33,6 +45,7 @@ import {
   evaluateQuizSchedule,
   QuizScheduleCheckResult,
 } from '../../utils/quizTimeHelper';
+import { formatQuizEmbedUrl } from '../shared/InAppQuizViewerModal';
 
 interface MuridQuizProps {
   currentUser: User;
@@ -66,6 +79,25 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
   // Local state for interactive matching / tarik garis
   // Map of leftItem -> rightItem for the active question
   const [activeLeftSelection, setActiveLeftSelection] = useState<string | null>(null);
+
+  // In-app embedded iframe states for external quiz links
+  const [iframeFullscreenId, setIframeFullscreenId] = useState<string | null>(null);
+  const [iframeReloadKey, setIframeReloadKey] = useState(0);
+
+  // Token / Kunci Akses Kuis State
+  const [tokenPromptQuiz, setTokenPromptQuiz] = useState<{
+    quiz: Quiz;
+    forceMode?: 'serentak' | 'simulasi';
+  } | null>(null);
+  const [inputToken, setInputToken] = useState('');
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
+  // Token Keluar Ujian Otomatis (Exit Token) State
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [showTokenKeluarModal, setShowTokenKeluarModal] = useState(false);
+  const [inputTokenKeluar, setInputTokenKeluar] = useState('');
+  const [tokenKeluarError, setTokenKeluarError] = useState<string | null>(null);
+  const [showTokenKeluarToast, setShowTokenKeluarToast] = useState(false);
 
   const quizQuestions: Soal[] = activeQuiz
     ? (Array.isArray(activeQuiz.soal) && activeQuiz.soal.length > 0
@@ -102,6 +134,14 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
         // fallback
       }
       return ans.toLowerCase().includes((s.kunciJawaban || '').toLowerCase().slice(0, 8));
+    }
+    if (
+      s.tipe === 'Link Google Form' ||
+      s.tipe === 'Link AppScript' ||
+      s.tipe === 'Link Aplikasi Lainnya' ||
+      s.linkEksternal
+    ) {
+      return !!ans && (ans === 'Selesai' || ans === 'Sudah Dikumpulkan' || ans === 'Tuntas' || ans.trim().length > 0);
     }
     return ans.trim().toLowerCase() === (s.kunciJawaban || '').trim().toLowerCase();
   }, []);
@@ -230,6 +270,7 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
         }
         return prev - 1;
       });
+      setElapsedSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(interval);
   }, [activeQuiz, isFinished]);
@@ -273,26 +314,24 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
     return () => clearInterval(timer);
   }, []);
 
-  const handleStartQuiz = (quiz: Quiz, forceMode?: 'serentak' | 'simulasi') => {
-    const hasTaken = (db.jawabanQuiz || []).find(
-      (j) => j.quizId === quiz.id && j.muridId === currentUser.id
-    );
-    if (hasTaken) {
-      alert(
-        `Kuis "${quiz.judul}" sudah Anda kerjakan (Nilai: ${hasTaken.nilai}) dan telah dikunci otomatis oleh sistem.\n\nPengerjaan kuis hanya diizinkan 1 kali tanpa pengulangan. Jika Anda memerlukan remedial atau izin mengulang, silakan hubungi Guru PJOK atau Admin untuk membuka kunci pengerjaan.`
-      );
-      return;
+  // Computed helpers for Token Keluar Otomatis
+  const hasTokenKeluar = Boolean(activeQuiz?.tokenKeluar && activeQuiz.tokenKeluar.trim());
+  const tokenKeluarWaktuMenit = activeQuiz?.waktuMunculTokenKeluarMenit ?? 10;
+  const tokenKeluarUnlockSeconds = tokenKeluarWaktuMenit * 60;
+  const isTokenKeluarUnlocked = !hasTokenKeluar || (elapsedSeconds >= tokenKeluarUnlockSeconds);
+  const secondsUntilTokenKeluar = Math.max(0, tokenKeluarUnlockSeconds - elapsedSeconds);
+
+  // Auto-toast trigger when Token Keluar is unlocked
+  useEffect(() => {
+    if (!activeQuiz || !hasTokenKeluar || isFinished) return;
+    if (elapsedSeconds >= tokenKeluarUnlockSeconds && tokenKeluarUnlockSeconds > 0) {
+      setShowTokenKeluarToast(true);
     }
+  }, [elapsedSeconds, activeQuiz, hasTokenKeluar, isFinished, tokenKeluarUnlockSeconds]);
 
-    const schedule = evaluateQuizSchedule(quiz);
-
-    // Jika murid mengklik tanpa forceMode dan waktu saat ini bukan DURING (sebelum 07:00 atau setelah 07:20 WITA)
-    if (!forceMode && schedule.status !== 'DURING') {
-      setSchedulePromptQuiz({ quiz, result: schedule });
-      return;
-    }
-
+  const proceedStartQuiz = (quiz: Quiz, forceMode?: 'serentak' | 'simulasi') => {
     let initialSeconds = (quiz.durasiMenit || 20) * 60;
+    const schedule = evaluateQuizSchedule(quiz);
     const mode = forceMode || (schedule.status === 'DURING' ? 'serentak' : 'simulasi');
 
     if (mode === 'serentak' && schedule.status === 'DURING') {
@@ -305,13 +344,122 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
     setCurrentSoalIndex(0);
     setAnswers({});
     setTimeLeft(initialSeconds);
+    setElapsedSeconds(0);
     setIsFinished(false);
     setFinalScore(null);
     setActiveLeftSelection(null);
     setShowExitConfirmModal(false);
+    setShowTokenKeluarModal(false);
+    setInputTokenKeluar('');
+    setTokenKeluarError(null);
+    setShowTokenKeluarToast(false);
     setTabSwitchAlert(null);
     setTabSwitchCount(0);
     setSchedulePromptQuiz(null);
+    setTokenPromptQuiz(null);
+  };
+
+  const handleRequestSubmit = () => {
+    if (!activeQuiz) return;
+    if (hasTokenKeluar) {
+      if (isTokenKeluarUnlocked) {
+        setInputTokenKeluar(activeQuiz.tokenKeluar || '');
+      } else {
+        setInputTokenKeluar('');
+      }
+      setTokenKeluarError(null);
+      setShowTokenKeluarModal(true);
+    } else {
+      setShowExitConfirmModal(true);
+    }
+  };
+
+  const handleConfirmExitToken = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!activeQuiz) return;
+
+    if (isTokenKeluarUnlocked) {
+      // Token is already automatically unlocked on screen, submit immediately!
+      handleSubmitQuiz();
+      setShowTokenKeluarModal(false);
+      return;
+    }
+
+    const target = (activeQuiz.tokenKeluar || '').trim().toUpperCase();
+    const entered = inputTokenKeluar.trim().toUpperCase();
+
+    if (!entered) {
+      setTokenKeluarError('Silakan masukkan token keluar dari Guru PJOK atau tunggu waktu otomatis.');
+      return;
+    }
+
+    if (entered !== target) {
+      setTokenKeluarError('Token keluar salah! Anda belum diizinkan mengumpulkan kuis.');
+      return;
+    }
+
+    handleSubmitQuiz();
+    setShowTokenKeluarModal(false);
+  };
+
+  const handleStartQuiz = (quiz: Quiz, forceMode?: 'serentak' | 'simulasi') => {
+    const hasTaken = (db.jawabanQuiz || []).find(
+      (j) => j.quizId === quiz.id && j.muridId === currentUser.id
+    );
+    if (hasTaken) {
+      alert(
+        `Kuis "${quiz.judul}" sudah Anda kerjakan (Nilai: ${hasTaken.nilai}) dan telah dikunci otomatis oleh sistem.\n\nPengerjaan kuis hanya diizinkan 1 kali tanpa pengulangan. Jika Anda memerlukan remedial atau izin mengulang, silakan hubungi Guru PJOK atau Admin untuk membuka kunci pengerjaan.`
+      );
+      return;
+    }
+
+    // 1. Jika kuis memiliki kunci akses / token, murid wajib memasukkan kunci terlebih dahulu
+    if (quiz.kunciMasuk && quiz.kunciMasuk.trim()) {
+      setTokenPromptQuiz({ quiz, forceMode });
+      setInputToken('');
+      setTokenError(null);
+      return;
+    }
+
+    const schedule = evaluateQuizSchedule(quiz);
+
+    // 2. Jika murid mengklik tanpa forceMode dan waktu saat ini bukan DURING (sebelum 07:00 atau setelah 07:20 WITA)
+    if (!forceMode && schedule.status !== 'DURING') {
+      setSchedulePromptQuiz({ quiz, result: schedule });
+      return;
+    }
+
+    proceedStartQuiz(quiz, forceMode);
+  };
+
+  const handleVerifyTokenAndStart = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!tokenPromptQuiz) return;
+    const targetKey = (tokenPromptQuiz.quiz.kunciMasuk || '').trim().toUpperCase();
+    const entered = inputToken.trim().toUpperCase();
+
+    if (!entered) {
+      setTokenError('Kunci kuis belum diisi. Silakan masukkan kunci kuis.');
+      return;
+    }
+
+    if (entered !== targetKey) {
+      setTokenError('Kunci kuis salah! Pastikan kunci yang dimasukkan sesuai instruksi Guru PJOK.');
+      return;
+    }
+
+    const { quiz, forceMode } = tokenPromptQuiz;
+    setTokenPromptQuiz(null);
+    setInputToken('');
+    setTokenError(null);
+
+    const schedule = evaluateQuizSchedule(quiz);
+    if (!forceMode && schedule.status !== 'DURING') {
+      setSchedulePromptQuiz({ quiz, result: schedule });
+      return;
+    }
+
+    proceedStartQuiz(quiz, forceMode);
   };
 
   // Auto-launch quiz if initialQuizId is provided via notification
@@ -488,6 +636,27 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                               Batas &lt; 24 Jam ({timeRemainingText})
                             </span>
                           )}
+
+                          {((q.soal || q.soalList || []).some((s) => s.linkEksternal || s.tipe?.startsWith('Link')) || q.linkEksternal) && (
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded text-[10px] font-bold flex items-center gap-1">
+                              <Globe className="w-3 h-3 text-blue-600" />
+                              Tautan Interaktif (Di Aplikasi)
+                            </span>
+                          )}
+
+                          {q.kunciMasuk ? (
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 rounded text-[10px] font-extrabold flex items-center gap-1">
+                              <Lock className="w-3 h-3 text-amber-600" />
+                              Perlu Kunci Kuis
+                            </span>
+                          ) : null}
+
+                          {q.tokenKeluar ? (
+                            <span className="px-2 py-0.5 bg-teal-50 text-teal-800 border border-teal-300 rounded text-[10px] font-extrabold flex items-center gap-1">
+                              <LogOut className="w-3 h-3 text-teal-600" />
+                              Token Keluar Otomatis (Menit ke-{q.waktuMunculTokenKeluarMenit || 10})
+                            </span>
+                          ) : null}
                         </div>
                         {hasTaken && (
                           <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded text-[10px]">
@@ -570,12 +739,21 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                           type="button"
                           onClick={() => handleStartQuiz(q)}
                           className={`px-4 py-2 text-white font-bold rounded-xl text-xs transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer ${
-                            schedule.status === 'DURING'
+                            q.kunciMasuk
+                              ? 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 ring-2 ring-amber-400/30'
+                              : schedule.status === 'DURING'
                               ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 ring-2 ring-emerald-400/40 animate-pulse'
                               : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700'
                           }`}
                         >
-                          <span>{schedule.status === 'DURING' ? 'Mulai Ujian Serentak' : 'Mulai Quiz'}</span>
+                          {q.kunciMasuk && <Key className="w-3.5 h-3.5" />}
+                          <span>
+                            {q.kunciMasuk
+                              ? 'Masukkan Kunci & Mulai'
+                              : schedule.status === 'DURING'
+                              ? 'Mulai Ujian Serentak'
+                              : 'Mulai Quiz'}
+                          </span>
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       )}
@@ -657,6 +835,93 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
         </div>
       )}
 
+      {/* Modal Input Kunci / Token Akses Kuis Murid */}
+      {tokenPromptQuiz && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-amber-300 space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto shadow-inner border border-amber-200">
+              <Key className="w-7 h-7 animate-bounce" />
+            </div>
+
+            <div className="text-center space-y-1.5">
+              <span className="px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[10px] font-black uppercase tracking-wider">
+                Proteksi Kunci Akses Kuis
+              </span>
+              <h3 className="text-lg font-black text-slate-900 leading-snug">
+                {tokenPromptQuiz.quiz.judul}
+              </h3>
+              <p className="text-xs text-slate-600 font-medium">
+                Kuis ini membutuhkan <strong>Kunci Akses / Token</strong>. Masukkan kunci yang telah diberikan oleh Guru PJOK di kelas untuk membuka dan memulai soal.
+              </p>
+            </div>
+
+            <form onSubmit={handleVerifyTokenAndStart} className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 text-center">
+                  Ketik Kunci Kuis / Token:
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    autoFocus
+                    required
+                    value={inputToken}
+                    onChange={(e) => {
+                      setInputToken(e.target.value.toUpperCase());
+                      setTokenError(null);
+                    }}
+                    placeholder="CONTOH: PJOK88"
+                    className="w-full px-4 py-3 bg-amber-50/50 border-2 border-amber-400 focus:border-amber-600 focus:ring-4 focus:ring-amber-300/30 rounded-2xl font-mono text-center font-black text-lg tracking-widest text-amber-950 placeholder:text-slate-300 focus:outline-hidden uppercase transition-all shadow-inner"
+                  />
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-600">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                </div>
+
+                {tokenError && (
+                  <p className="text-xs text-rose-600 font-bold text-center bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                    ⚠️ {tokenError}
+                  </p>
+                )}
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-500 space-y-1">
+                <p className="flex items-center gap-1.5 font-bold text-slate-700">
+                  <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                  Petunjuk Siswa:
+                </p>
+                <p>
+                  • Kunci kuis tidak peka huruf besar/kecil (case-insensitive).
+                  <br />
+                  • Segera tanyakan kepada Guru PJOK jika belum menerima kunci kuis.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTokenPromptQuiz(null);
+                    setInputToken('');
+                    setTokenError(null);
+                  }}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer text-center"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="py-2.5 px-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-extrabold rounded-xl text-xs transition-all shadow-md shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>Buka Kuis & Mulai</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* View 2 & 3: MODE UJIAN TERKUNCI (FULLSCREEN LOCKDOWN) */}
       {activeQuiz && (
         <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md overflow-y-auto p-3 sm:p-6 flex flex-col justify-between animate-in fade-in">
@@ -690,7 +955,13 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                 <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                   <button
                     type="button"
-                    onClick={() => setShowExitConfirmModal(true)}
+                    onClick={() => {
+                      if (hasTokenKeluar) {
+                        handleRequestSubmit();
+                      } else {
+                        setShowExitConfirmModal(true);
+                      }
+                    }}
                     className="px-3 py-1.5 bg-white/10 hover:bg-rose-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold transition-all border border-white/20 flex items-center gap-1.5 cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
@@ -767,9 +1038,32 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                       </div>
                     </div>
 
+                    {/* Token Keluar Indicator in Header */}
+                    {hasTokenKeluar && (
+                      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border backdrop-blur-xs ${
+                        isTokenKeluarUnlocked
+                          ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-200 animate-pulse'
+                          : 'bg-amber-500/20 border-amber-400/30 text-amber-200'
+                      }`}>
+                        {isTokenKeluarUnlocked ? (
+                          <Key className="w-4 h-4 text-amber-300" />
+                        ) : (
+                          <Lock className="w-4 h-4 text-amber-300" />
+                        )}
+                        <div>
+                          <div className="text-[8px] uppercase font-bold text-slate-300">Token Keluar</div>
+                          <span className={`font-mono font-black text-xs ${
+                            isTokenKeluarUnlocked ? 'text-amber-300 tracking-wider' : 'text-amber-100'
+                          }`}>
+                            {isTokenKeluarUnlocked ? activeQuiz.tokenKeluar : formatTimer(secondsUntilTokenKeluar)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     <button
                       type="button"
-                      onClick={handleSubmitQuiz}
+                      onClick={handleRequestSubmit}
                       className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" />
@@ -777,6 +1071,89 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                     </button>
                   </div>
                 </div>
+
+                {/* Banner Token Keluar Otomatis di Layar Murid */}
+                {hasTokenKeluar && (
+                  <>
+                    {!isTokenKeluarUnlocked ? (
+                      <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border border-amber-500/30 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-xs">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-800 flex items-center justify-center shrink-0">
+                            <Clock className="w-4 h-4 animate-spin-slow" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-amber-950">
+                                Token Keluar Otomatis Terkunci
+                              </span>
+                              <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-black">
+                                Muncul Menit ke-{tokenKeluarWaktuMenit}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-amber-800 mt-0.5">
+                              Fokuslah meneliti jawaban Anda. Token untuk mengumpulkan kuis akan <strong>otomatis tampil di layar Anda</strong> dalam <span className="font-mono font-black text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">{formatTimer(secondsUntilTokenKeluar)}</span>.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInputTokenKeluar('');
+                            setTokenKeluarError(null);
+                            setShowTokenKeluarModal(true);
+                          }}
+                          className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer self-start sm:self-auto shrink-0 shadow-2xs"
+                        >
+                          Izin Keluar / Masukkan Token
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md animate-in slide-in-from-top-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0 shadow-inner">
+                            <Key className="w-5 h-5 animate-pulse text-amber-300" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-black text-xs tracking-wide uppercase text-emerald-100">
+                                🎉 Token Keluar Otomatis Terbuka:
+                              </span>
+                              <span className="px-2.5 py-0.5 bg-amber-400 text-amber-950 rounded-lg font-mono font-black text-sm tracking-widest shadow-xs">
+                                {activeQuiz.tokenKeluar}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(activeQuiz.tokenKeluar || '');
+                                  alert(`Token Keluar "${activeQuiz.tokenKeluar}" disalin!`);
+                                }}
+                                className="p-1 hover:bg-white/20 rounded transition-colors text-emerald-100"
+                                title="Salin Token Keluar"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-emerald-100 mt-0.5">
+                              Waktu pengerjaan minimal ({tokenKeluarWaktuMenit} menit) telah tercapai. Anda sekarang dapat mengumpulkan hasil ujian.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInputTokenKeluar(activeQuiz.tokenKeluar || '');
+                            setTokenKeluarError(null);
+                            setShowTokenKeluarModal(true);
+                          }}
+                          className="px-4 py-2 bg-white text-emerald-800 hover:bg-emerald-50 rounded-xl text-xs font-black transition-colors cursor-pointer self-start sm:self-auto shrink-0 shadow-xs flex items-center gap-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Kumpulkan Jawaban</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {/* Question Navigator Bar */}
                 <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-2">
@@ -1168,6 +1545,135 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                         </div>
                       )}
 
+                      {/* 6. Link Google Form, Link AppScript, & Link Aplikasi Lainnya (Terbuka di dalam Aplikasi) */}
+                      {(currentType === 'Link Google Form' ||
+                        currentType === 'Link AppScript' ||
+                        currentType === 'Link Aplikasi Lainnya' ||
+                        Boolean(currentSoal.linkEksternal)) && (
+                        <div className="space-y-3 pt-1">
+                          {/* Platform Header & Toolbar */}
+                          <div className="p-3.5 bg-slate-900 text-white rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/15">
+                                {currentType === 'Link Google Form' ? (
+                                  <FileText className="w-5 h-5 text-purple-400" />
+                                ) : currentType === 'Link AppScript' ? (
+                                  <Code2 className="w-5 h-5 text-blue-400" />
+                                ) : (
+                                  <Globe className="w-5 h-5 text-emerald-400" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-white/20 text-white">
+                                    {currentType === 'Link Google Form'
+                                      ? 'Google Form'
+                                      : currentType === 'Link AppScript'
+                                      ? 'Google Apps Script'
+                                      : 'Aplikasi Soal Interaktif'}
+                                  </span>
+                                  <span className="text-[11px] text-emerald-300 font-semibold flex items-center gap-1">
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                    Terbuka di Dalam Aplikasi
+                                  </span>
+                                </div>
+                                <h4 className="font-extrabold text-xs sm:text-sm text-white truncate mt-0.5">
+                                  {currentSoal.judulLink || currentSoal.pertanyaan}
+                                </h4>
+                              </div>
+                            </div>
+
+                            {/* Toolbar Buttons */}
+                            <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setIframeReloadKey((k) => k + 1)}
+                                className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Muat ulang lembar soal jika ada kendala jaringan"
+                              >
+                                <RotateCw className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Muat Ulang</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIframeFullscreenId(currentSoal.id)}
+                                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Perbesar tampilan penuh di dalam aplikasi"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                                <span>Layar Penuh</span>
+                              </button>
+                              {currentSoal.linkEksternal && (
+                                <a
+                                  href={currentSoal.linkEksternal}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 bg-white/10 hover:bg-white/20 text-slate-300 rounded-lg transition-colors cursor-pointer"
+                                  title="Buka tab baru sebagai cadangan darurat jika peramban membatasi frame"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+
+                          {currentSoal.keteranganLink && (
+                            <p className="text-xs text-slate-600 bg-purple-50 p-2.5 rounded-xl border border-purple-100 font-medium">
+                              📌 {currentSoal.keteranganLink}
+                            </p>
+                          )}
+
+                          {/* Embedded iFrame in App */}
+                          {currentSoal.linkEksternal ? (
+                            <div className="relative rounded-2xl overflow-hidden border-2 border-slate-300 shadow-inner bg-slate-100 min-h-[500px]">
+                              <iframe
+                                key={`${currentSoal.id}-${iframeReloadKey}`}
+                                src={formatQuizEmbedUrl(currentSoal.linkEksternal)}
+                                title={currentSoal.judulLink || 'Lembar Soal Interaktif'}
+                                className="w-full h-[520px] border-none"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                              />
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl text-xs text-slate-500">
+                              Tautan belum ditentukan oleh guru untuk butir soal ini.
+                            </div>
+                          )}
+
+                          {/* Completion Checkmark Action */}
+                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                              <span className="font-extrabold text-xs text-slate-800 block">
+                                Konfirmasi Penyelesaian Butir Soal:
+                              </span>
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                Setelah selesai mengerjakan pada lembar tersemat di atas, klik tombol konfirmasi di samping untuk merekam skor Anda.
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const isDone = answers[currentSoal.id] === 'Selesai';
+                                handleSelectAnswer(currentSoal.id, isDone ? '' : 'Selesai');
+                              }}
+                              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 shadow-xs ${
+                                answers[currentSoal.id] === 'Selesai'
+                                  ? 'bg-emerald-600 text-white shadow-emerald-200'
+                                  : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>
+                                {answers[currentSoal.id] === 'Selesai'
+                                  ? '✓ Sudah Selesai Dikerjakan'
+                                  : 'Tandai Sudah Selesai'}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Navigation Buttons */}
                       <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                         <button
@@ -1196,7 +1702,7 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                         ) : (
                           <button
                             type="button"
-                            onClick={handleSubmitQuiz}
+                            onClick={handleRequestSubmit}
                             className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer"
                           >
                             Selesai & Kumpulkan
@@ -1376,7 +1882,12 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
               <button
                 type="button"
                 onClick={() => {
-                  handleSubmitQuiz();
+                  setShowExitConfirmModal(false);
+                  if (hasTokenKeluar) {
+                    handleRequestSubmit();
+                  } else {
+                    handleSubmitQuiz();
+                  }
                 }}
                 className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer text-center flex items-center justify-center gap-1.5"
               >
@@ -1387,6 +1898,263 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
           </div>
         </div>
       )}
+
+      {/* Modal Token Keluar Ujian Otomatis */}
+      {showTokenKeluarModal && activeQuiz && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            {/* Header */}
+            <div className="text-center space-y-2">
+              <div className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center shadow-inner ${
+                isTokenKeluarUnlocked ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+              }`}>
+                {isTokenKeluarUnlocked ? (
+                  <CheckCircle2 className="w-7 h-7 text-emerald-600" />
+                ) : (
+                  <Lock className="w-7 h-7 text-amber-600" />
+                )}
+              </div>
+              <h3 className="text-base font-black text-slate-800">
+                {isTokenKeluarUnlocked ? 'Token Keluar Otomatis Terbuka!' : 'Token Keluar Ujian Diperlukan'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {isTokenKeluarUnlocked
+                  ? `Waktu minimal ujian (${tokenKeluarWaktuMenit} menit) telah tercapai. Anda diizinkan untuk mengumpulkan jawaban sekarang.`
+                  : `Kuis ini terproteksi Token Keluar. Token akan tampil otomatis di layar Anda setelah ${tokenKeluarWaktuMenit} menit.`}
+              </p>
+            </div>
+
+            {/* Quiz Progress Summary */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-1.5">
+              <div className="flex justify-between font-bold">
+                <span>Kuis:</span>
+                <span className="text-purple-700 font-extrabold truncate max-w-[200px]">{activeQuiz.judul}</span>
+              </div>
+              <div className="flex justify-between font-bold">
+                <span>Soal Terjawab:</span>
+                <span className="text-slate-800">
+                  {Object.keys(answers).length} dari {quizQuestions.length} Butir Soal
+                </span>
+              </div>
+              <div className="flex justify-between font-bold">
+                <span>Sisa Waktu Ujian:</span>
+                <span className="text-amber-600 font-mono">{formatTimer(timeLeft)}</span>
+              </div>
+            </div>
+
+            {isTokenKeluarUnlocked ? (
+              /* Token is already unlocked automatically */
+              <div className="space-y-4">
+                <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-300 p-4 rounded-2xl text-center space-y-2 shadow-xs">
+                  <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+                    Token Keluar Otomatis Anda
+                  </span>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="font-mono text-3xl font-black text-emerald-950 tracking-widest bg-white py-1.5 px-4 rounded-xl border border-emerald-300 shadow-2xs">
+                      {activeQuiz.tokenKeluar}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(activeQuiz.tokenKeluar || '');
+                        alert(`Token Keluar "${activeQuiz.tokenKeluar}" disalin!`);
+                      }}
+                      className="p-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl transition-colors cursor-pointer"
+                      title="Salin Token"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    Token ini otomatis terbuka karena waktu pengerjaan telah mencapai batas minimal waktu guru ({tokenKeluarWaktuMenit} menit).
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowTokenKeluarModal(false)}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer text-center"
+                  >
+                    Periksa Kembali
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmExitToken}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer text-center flex items-center justify-center gap-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Kirim Jawaban</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Token is still locked */
+              <div className="space-y-3.5">
+                <div className="bg-amber-50 border border-amber-300 p-3.5 rounded-2xl space-y-2 text-amber-900">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-700" />
+                      Token Muncul Otomatis Dalam:
+                    </span>
+                    <span className="font-mono text-base font-black text-amber-950 bg-amber-200/70 px-2 py-0.5 rounded-md">
+                      {formatTimer(secondsUntilTokenKeluar)}
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-amber-800 leading-snug">
+                    Guru PJOK menetapkan waktu pengerjaan minimal <strong>{tokenKeluarWaktuMenit} menit</strong>. Harap periksa kembali jawaban Anda hingga waktu token keluar muncul otomatis di layar.
+                  </p>
+                </div>
+
+                <form onSubmit={handleConfirmExitToken} className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Punya Izin Pengawas / Guru untuk Keluar Lebih Awal?
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Masukkan Token Keluar dari Guru..."
+                      value={inputTokenKeluar}
+                      onChange={(e) => {
+                        setInputTokenKeluar(e.target.value.toUpperCase());
+                        setTokenKeluarError(null);
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-center text-sm tracking-widest uppercase focus:ring-2 focus:ring-purple-400 focus:outline-hidden"
+                      autoFocus
+                    />
+                    {tokenKeluarError && (
+                      <p className="text-xs text-rose-600 font-bold flex items-center gap-1 mt-1.5 animate-shake">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{tokenKeluarError}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowTokenKeluarModal(false)}
+                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer text-center"
+                    >
+                      Batal & Lanjut Ujian
+                    </button>
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs cursor-pointer text-center flex items-center justify-center gap-1.5"
+                    >
+                      <Key className="w-3.5 h-3.5" />
+                      <span>Validasi & Kirim</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Auto-Toast Notification when Token Keluar Unlocks */}
+      {showTokenKeluarToast && isTokenKeluarUnlocked && hasTokenKeluar && !isFinished && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white p-4 rounded-2xl shadow-2xl border-2 border-amber-300 animate-in slide-in-from-bottom-5 duration-300 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-200 block">
+                  Notifikasi Ujian
+                </span>
+                <h4 className="font-extrabold text-sm text-white">
+                  Token Keluar Otomatis Terbuka!
+                </h4>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowTokenKeluarToast(false)}
+              className="text-white/80 hover:text-white p-1 rounded transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-emerald-100 leading-snug">
+            Waktu minimal ({tokenKeluarWaktuMenit} menit) telah tercapai. Token Keluar: <strong className="font-mono text-amber-300 font-black tracking-wider text-sm px-1.5 py-0.5 bg-black/20 rounded">{activeQuiz.tokenKeluar}</strong>
+          </p>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setShowTokenKeluarToast(false);
+                handleRequestSubmit();
+              }}
+              className="flex-1 py-1.5 bg-amber-400 hover:bg-amber-300 text-amber-950 font-black rounded-xl text-xs transition-colors shadow-xs text-center cursor-pointer"
+            >
+              Kumpulkan Ujian Sekarang
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTokenKeluarToast(false)}
+              className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white font-bold rounded-xl text-xs transition-colors text-center cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen In-App Iframe Modal for Student */}
+      {iframeFullscreenId && (() => {
+        const fullSoal = quizQuestions.find((s) => s.id === iframeFullscreenId);
+        if (!fullSoal || !fullSoal.linkEksternal) return null;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col animate-in fade-in duration-150">
+            <div className="p-3 bg-slate-900 border-b border-slate-800 text-white flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="px-2.5 py-0.5 bg-purple-600 text-white font-black text-[10px] rounded uppercase">
+                  {fullSoal.tipe || 'Soal Interaktif'}
+                </span>
+                <h3 className="font-bold text-xs sm:text-sm truncate text-white">
+                  {fullSoal.judulLink || fullSoal.pertanyaan}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const isDone = answers[fullSoal.id] === 'Selesai';
+                    handleSelectAnswer(fullSoal.id, isDone ? '' : 'Selesai');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    answers[fullSoal.id] === 'Selesai'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{answers[fullSoal.id] === 'Selesai' ? '✓ Selesai' : 'Tandai Selesai'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIframeFullscreenId(null)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Minimize2 className="w-4 h-4" />
+                  <span>Kembali ke Soal</span>
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 w-full h-full bg-slate-900">
+              <iframe
+                src={formatQuizEmbedUrl(fullSoal.linkEksternal)}
+                title={fullSoal.judulLink || 'Soal Layar Penuh'}
+                className="w-full h-full border-none"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+              />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -152,7 +152,10 @@ export type TipeSoal =
   | 'Mencocokkan Gambar'
   | 'Tarik Garis'
   | 'Urutan Gerak'
-  | 'Isian';
+  | 'Isian'
+  | 'Link Google Form'
+  | 'Link AppScript'
+  | 'Link Aplikasi Lainnya';
 
 export interface MatchingPair {
   id?: string;
@@ -175,6 +178,11 @@ export interface Soal {
   gambarUrl?: string;
   matchingPairs?: MatchingPair[];
   steps?: string[];
+  // Fitur Link Eksternal Terbuka di Dalam Aplikasi
+  linkEksternal?: string;
+  tipeLink?: 'google-form' | 'appscript' | 'aplikasi-lain';
+  judulLink?: string;
+  keteranganLink?: string;
 }
 
 export type SoalQuiz = Soal;
@@ -208,6 +216,15 @@ export interface Quiz {
   statusPublikasi?: 'Publish' | 'Draft';
   soalList?: Soal[];
   soal?: Soal[];
+  // Tambahan link paket quiz eksternal
+  linkEksternal?: string;
+  tipeLink?: 'google-form' | 'appscript' | 'aplikasi-lain';
+  // Kunci / Token Akses Kuis
+  kunciMasuk?: string;
+  // Token Keluar Ujian Otomatis (Exit Token)
+  gunakanTokenKeluar?: boolean;
+  tokenKeluar?: string;
+  waktuMunculTokenKeluarMenit?: number; // Menit sejak ujian dimulai kapan token otomatis tampil di layar murid
 }
 
 export interface JawabanQuiz {
@@ -349,8 +366,60 @@ export interface PenilaianSikap {
 }
 
 // ----------------------------------------------------
-// PENILAIAN TEMAN SEJAWAT (ANTAR PESERTA DIDIK)
+// PENILAIAN ANTAR TEMAN (SEBELUMNYA TEMAN SEJAWAT)
 // ----------------------------------------------------
+export interface IndikatorPenilaianItem {
+  id: string;
+  judulPenilaian: string; // JUDUL PENILAIAN
+  materiPembelajaran: string; // MATERI PEMBELAJARAN
+  pernyataanIndikator: string; // PERNYATAAN INDIKATOR YANG DI NILAI
+  urutan: number; // URUTKAN INDIKATOR
+  status: 'AKTIF' | 'NON AKTIF'; // STATUS (AKTIF, NON AKTIF)
+  // DESKRIPSI SKALA PENILAIAN (1-4)
+  skala1PerluBimbingan: string; // SKALA 1 - PERLU BIMBINGAN (ISIANNYA KETIK MANUAL)
+  skala2MulaiBerkembang: string; // SKALA 2 - MULAI BERKEMBANG (KETIK MANUAL ISIANNYA)
+  skala3BerkembangSesuaiHarapan: string; // SKALA 3 - BERKEMBANG SESUAI DENGAN HARAPAN
+  skala4BerkembangSangatBaik: string; // SKALA 4 - BERKEMBANG SANGAT BAIK
+  createdAt?: string;
+  updatedAt?: string;
+  guruId?: string;
+  guruNama?: string;
+}
+
+export type StatusTugasPenilaian = 'AKTIF' | 'DRAF' | 'SELESAI';
+
+export interface TugasPenilaianAntarTeman {
+  id: string;
+  namaTugas: string; // NAMA TUGAS PENILAIAN
+  materi: string; // MATERI
+  materiId?: string;
+  kelasIds: string[]; // DITUGASKAN KE KELAS *(BISA PILIH LEBIH DARI 1 KELAS)
+  tanggalMulai: string; // TANGGAL MULAI PENILAIAN
+  batasWaktu: string; // BATAS WAKTU PENILAIAN
+  instruksi: string; // INTRUKSI PENILAIAN BAGI MURID
+  indikatorIds: string[]; // PILIH INDIKATOR PENILAIAN (DARI BANK INDIKATOR)
+  jumlahWajibDinilai: number; // JUMLAH YANG WAJIB DI NILAI
+  status: StatusTugasPenilaian; // STATUS TUGAS (AKTIF, DRAF, SELESAI)
+  // OPSI TAMBAHAN
+  allowVideoUpload: boolean; // Boleh murid menggungah video bukti gerakan
+  allowPhotoUpload: boolean; // Boleh murid menggungah foto bukti gerakan
+  requireProofUpload: boolean; // Wajib unggah bukti sebelum mengirim penilaian
+  allowEditBeforeDeadline: boolean; // izinkan murid mengedit nilai sebelum batas waktu (fitur izinkan edit)
+  guruId?: string;
+  guruNama?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface NilaiIndikatorItem {
+  indikatorId: string;
+  judul?: string;
+  pernyataan: string;
+  skor: number; // 1 - 4
+  levelLabel?: string; // 'Perlu Bimbingan' | 'Mulai Berkembang' | 'Berkembang Sesuai Harapan' | 'Berkembang Sangat Baik'
+  deskripsiCapaian?: string;
+}
+
 export interface DimensiAsesmenItem {
   id: string;
   nama: string;
@@ -375,6 +444,7 @@ export interface SkorDimensi {
 
 export interface PenilaianTemanSejawat {
   id: string;
+  tugasId?: string; // ID Tugas Penilaian Antar Teman jika dikaitkan
   penilaiId: string; // Murid / Guru penilai
   penilaiNama: string;
   targetMuridId: string; // Murid yang dinilai
@@ -386,6 +456,8 @@ export interface PenilaianTemanSejawat {
   kegiatanPraktik: string; // e.g. "Permainan Bola Voli Tim"
   materiId?: string; // ID materi pembelajaran terkait
   materiJudul?: string; // Judul materi pembelajaran terkait
+  // Evaluasi Rubrik Indikator (Skala 1 - 4)
+  nilaiIndikator?: NilaiIndikatorItem[];
   // Dynamic Dimensi Asesmen (diisi manual oleh guru)
   dimensiScores?: SkorDimensi[];
   // Aspek Penilaian Teman (Skala 1 - 5) - fallback & kompatibilitas
@@ -393,13 +465,19 @@ export interface PenilaianTemanSejawat {
   skorSportivitas: number; // 1-5: Sikap sportif dan adil
   skorKomunikasi: number; // 1-5: Saling menyemangati & berbicara sopan
   skorTanggungJawab: number; // 1-5: Menjalankan peran dalam kelompok
-  rataRata?: number; // 1.0 - 5.0
+  rataRata?: number; // 1.0 - 5.0 atau 1.0 - 4.0
   catatanPositif: string; // Kesan baik / apresiasi terhadap teman
   catatanPerbaikan?: string; // Saran perbaikan
   linkDokumentasi?: string; // Upload link / URL dokumentasi video/foto praktik bersama teman
   namaLinkDokumentasi?: string;
+  buktiFotoUrl?: string; // Foto bukti gerakan
+  buktiVideoUrl?: string; // Video bukti gerakan
+  isEdited?: boolean; // Penanda apakah pernah diedit
   createdAt: string;
+  updatedAt?: string;
 }
+
+export type PenilaianAntarTeman = PenilaianTemanSejawat;
 
 // ----------------------------------------------------
 // PENILAIAN HARIAN (TOMBOL CEPAT 1 - 5)
@@ -422,6 +500,10 @@ export interface PenilaianHarian {
   // 5 = Sangat Baik / Mahir
   aspek?: string; // e.g. "Keaktifan & Antusiasme Gerak", "Penguasaan Teknik", "Kebugaran Fisik"
   catatan?: string;
+  // Kotak Centang Keaktifan Harian
+  bisaMenjawabCount?: number; // Berapa kali bisa menjawab (0, 1, 2, 3+)
+  memberikanMasukan?: boolean; // Memberikan masukan / saran aktif
+  mauAktif?: boolean; // Mau aktif gerak
   guruId?: string;
   guruNama?: string;
   updatedAt?: string;

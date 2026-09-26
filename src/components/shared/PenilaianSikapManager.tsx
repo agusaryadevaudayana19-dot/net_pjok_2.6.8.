@@ -18,6 +18,8 @@ import {
   UserCheck,
   Download,
   ClipboardList,
+  Save,
+  CheckSquare,
 } from 'lucide-react';
 import { User, PenilaianSikap, getTeacherAssignedClasses } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
@@ -204,6 +206,20 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'Semua' | 'Sudah' | 'Belum'>('Semua');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Quick Checklist State for Penilaian Sikap (Tinggal Centang Saja)
+  interface StudentSikapChecklist {
+    integritas: boolean; // Fair Play & Kejujuran
+    disiplin: boolean;   // Disiplin & Tertib
+    kerjaSama: boolean;  // Kerja Sama & Gotong Royong
+    sportivitas: boolean;// Sportivitas & Respek
+    tanggungJawab: boolean;// Tanggung Jawab & Mandiri
+    customPredikat?: 'Sangat Baik' | 'Baik' | 'Cukup' | 'Perlu Bimbingan';
+    catatan: string;
+  }
+
+  const [sikapChecklistData, setSikapChecklistData] = useState<Record<string, StudentSikapChecklist>>({});
 
   // Modal scoring state
   const [activeMuridToScore, setActiveMuridToScore] = useState<User | null>(null);
@@ -233,6 +249,318 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
     });
     return map;
   }, [db.penilaianSikap]);
+
+  // Sync checklist state when class or assessments change
+  useEffect(() => {
+    const initial: Record<string, StudentSikapChecklist> = {};
+    studentsInClass.forEach((s) => {
+      const existing = assessmentsMap.get(s.id);
+      if (existing) {
+        initial[s.id] = {
+          integritas: existing.integritas >= 3,
+          disiplin: existing.disiplin >= 3,
+          kerjaSama: existing.kerjaSama >= 3,
+          sportivitas: existing.sportivitas >= 3,
+          tanggungJawab: existing.tanggungJawab >= 3,
+          customPredikat: existing.predikat,
+          catatan: existing.catatanGuru || '',
+        };
+      } else {
+        initial[s.id] = {
+          integritas: true,
+          disiplin: true,
+          kerjaSama: true,
+          sportivitas: true,
+          tanggungJawab: true,
+          customPredikat: 'Sangat Baik',
+          catatan: '',
+        };
+      }
+    });
+    setSikapChecklistData(initial);
+  }, [studentsInClass, assessmentsMap]);
+
+  // Calculate score and predikat from checkboxes
+  const computeSikapFromChecklist = (muridId: string) => {
+    const c = sikapChecklistData[muridId];
+    if (!c) {
+      return {
+        integritas: 4,
+        disiplin: 4,
+        kerjaSama: 4,
+        sportivitas: 4,
+        tanggungJawab: 4,
+        rataRata: 4.0,
+        predikat: 'Sangat Baik' as const,
+      };
+    }
+
+    if (c.customPredikat) {
+      const val =
+        c.customPredikat === 'Sangat Baik' ? 4 :
+        c.customPredikat === 'Baik' ? 3 :
+        c.customPredikat === 'Cukup' ? 2 : 1;
+
+      return {
+        integritas: c.integritas ? val : Math.max(1, val - 1),
+        disiplin: c.disiplin ? val : Math.max(1, val - 1),
+        kerjaSama: c.kerjaSama ? val : Math.max(1, val - 1),
+        sportivitas: c.sportivitas ? val : Math.max(1, val - 1),
+        tanggungJawab: c.tanggungJawab ? val : Math.max(1, val - 1),
+        rataRata: val,
+        predikat: c.customPredikat,
+      };
+    }
+
+    const sIntegritas = c.integritas ? 4 : 2;
+    const sDisiplin = c.disiplin ? 4 : 2;
+    const sKerjaSama = c.kerjaSama ? 4 : 2;
+    const sSportivitas = c.sportivitas ? 4 : 2;
+    const sTanggungJawab = c.tanggungJawab ? 4 : 2;
+
+    const avg = (sIntegritas + sDisiplin + sKerjaSama + sSportivitas + sTanggungJawab) / 5;
+    const predikat = calculatePredikat(avg);
+
+    return {
+      integritas: sIntegritas,
+      disiplin: sDisiplin,
+      kerjaSama: sKerjaSama,
+      sportivitas: sSportivitas,
+      tanggungJawab: sTanggungJawab,
+      rataRata: Number(avg.toFixed(2)),
+      predikat,
+    };
+  };
+
+  const handleToggleAspect = (
+    muridId: string,
+    aspect: 'integritas' | 'disiplin' | 'kerjaSama' | 'sportivitas' | 'tanggungJawab'
+  ) => {
+    setSikapChecklistData((prev) => {
+      const current = prev[muridId] || {
+        integritas: true,
+        disiplin: true,
+        kerjaSama: true,
+        sportivitas: true,
+        tanggungJawab: true,
+        catatan: '',
+      };
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          [aspect]: !current[aspect],
+          customPredikat: undefined,
+        },
+      };
+    });
+  };
+
+  const handleSetPredikatQuick = (
+    muridId: string,
+    predikat: 'Sangat Baik' | 'Baik' | 'Cukup' | 'Perlu Bimbingan'
+  ) => {
+    setSikapChecklistData((prev) => {
+      const current = prev[muridId] || {
+        integritas: true,
+        disiplin: true,
+        kerjaSama: true,
+        sportivitas: true,
+        tanggungJawab: true,
+        catatan: '',
+      };
+      const isSame = current.customPredikat === predikat;
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          customPredikat: isSame ? undefined : predikat,
+          integritas: predikat === 'Sangat Baik' || predikat === 'Baik',
+          disiplin: predikat === 'Sangat Baik' || predikat === 'Baik',
+          kerjaSama: predikat !== 'Perlu Bimbingan',
+          sportivitas: predikat !== 'Perlu Bimbingan',
+          tanggungJawab: predikat === 'Sangat Baik',
+        },
+      };
+    });
+  };
+
+  const handleSetCatatanChecklist = (muridId: string, note: string) => {
+    setSikapChecklistData((prev) => {
+      const current = prev[muridId] || {
+        integritas: true,
+        disiplin: true,
+        kerjaSama: true,
+        sportivitas: true,
+        tanggungJawab: true,
+        catatan: '',
+      };
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          catatan: note,
+        },
+      };
+    });
+  };
+
+  const handleBatchChecklistSemuaSB = () => {
+    setSikapChecklistData((prev) => {
+      const next = { ...prev };
+      studentsInClass.forEach((s) => {
+        next[s.id] = {
+          integritas: true,
+          disiplin: true,
+          kerjaSama: true,
+          sportivitas: true,
+          tanggungJawab: true,
+          customPredikat: 'Sangat Baik',
+          catatan: next[s.id]?.catatan || '',
+        };
+      });
+      return next;
+    });
+    setToastMessage(`Semua murid dicentang Sangat Baik [✓]`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  const handleBatchChecklistSemuaBaik = () => {
+    setSikapChecklistData((prev) => {
+      const next = { ...prev };
+      studentsInClass.forEach((s) => {
+        next[s.id] = {
+          integritas: true,
+          disiplin: true,
+          kerjaSama: true,
+          sportivitas: true,
+          tanggungJawab: false,
+          customPredikat: 'Baik',
+          catatan: next[s.id]?.catatan || '',
+        };
+      });
+      return next;
+    });
+    setToastMessage(`Semua murid dicentang Baik [✓]`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  const handleBatchChecklist5Dimensi = () => {
+    setSikapChecklistData((prev) => {
+      const next = { ...prev };
+      studentsInClass.forEach((s) => {
+        next[s.id] = {
+          integritas: true,
+          disiplin: true,
+          kerjaSama: true,
+          sportivitas: true,
+          tanggungJawab: true,
+          customPredikat: undefined,
+          catatan: next[s.id]?.catatan || '',
+        };
+      });
+      return next;
+    });
+    setToastMessage(`Semua 5 dimensi sikap positif dicentang untuk seluruh murid [✓]`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  const handleSaveSingleSikapChecklist = (muridId: string) => {
+    const murid = studentsInClass.find((s) => s.id === muridId);
+    if (!murid) return;
+    const computed = computeSikapFromChecklist(muridId);
+    const c = sikapChecklistData[muridId];
+    const existing = assessmentsMap.get(muridId);
+
+    const newAssessment: PenilaianSikap = {
+      id: existing?.id || `sikap-${Date.now()}-${murid.id}`,
+      muridId: murid.id,
+      muridNama: murid.name,
+      nis: murid.nis,
+      kelasId: selectedKelasId,
+      kelasNama: currentKelas?.nama || selectedKelasId,
+      tanggal: new Date().toISOString().slice(0, 10),
+      semester: '1 (Ganjil)',
+      tahunAjaran: '2025/2026',
+      integritas: computed.integritas,
+      disiplin: computed.disiplin,
+      kerjaSama: computed.kerjaSama,
+      sportivitas: computed.sportivitas,
+      tanggungJawab: computed.tanggungJawab,
+      rataRata: computed.rataRata,
+      predikat: computed.predikat,
+      catatanGuru:
+        c?.catatan?.trim() ||
+        existing?.catatanGuru ||
+        `${murid.name} menunjukkan perilaku dan sikap yang ${computed.predikat.toLowerCase()} dalam aktivitas PJOK.`,
+      guruId: currentUser.id,
+      guruNama: currentUser.name,
+      statusPublikasi: 'Publish',
+      updatedAt: new Date().toISOString(),
+    };
+
+    dataStorage.updateDatabase((prev) => {
+      const prevList = prev.penilaianSikap || [];
+      const remaining = prevList.filter((s) => s.muridId !== murid.id);
+      return {
+        ...prev,
+        penilaianSikap: [...remaining, newAssessment],
+      };
+    });
+
+    setToastMessage(`Tersimpan: Sikap ${murid.name} (${computed.predikat})`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  const handleSaveAllSikapChecklist = () => {
+    if (studentsInClass.length === 0) return;
+
+    const newRecords: PenilaianSikap[] = studentsInClass.map((murid) => {
+      const computed = computeSikapFromChecklist(murid.id);
+      const c = sikapChecklistData[murid.id];
+      const existing = assessmentsMap.get(murid.id);
+
+      return {
+        id: existing?.id || `sikap-${Date.now()}-${murid.id}`,
+        muridId: murid.id,
+        muridNama: murid.name,
+        nis: murid.nis,
+        kelasId: selectedKelasId,
+        kelasNama: currentKelas?.nama || selectedKelasId,
+        tanggal: new Date().toISOString().slice(0, 10),
+        semester: '1 (Ganjil)',
+        tahunAjaran: '2025/2026',
+        integritas: computed.integritas,
+        disiplin: computed.disiplin,
+        kerjaSama: computed.kerjaSama,
+        sportivitas: computed.sportivitas,
+        tanggungJawab: computed.tanggungJawab,
+        rataRata: computed.rataRata,
+        predikat: computed.predikat,
+        catatanGuru:
+          c?.catatan?.trim() ||
+          existing?.catatanGuru ||
+          `${murid.name} menunjukkan sikap yang ${computed.predikat.toLowerCase()} dalam pembelajaran PJOK.`,
+        guruId: currentUser.id,
+        guruNama: currentUser.name,
+        statusPublikasi: 'Publish',
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    dataStorage.updateDatabase((prev) => {
+      const prevList = prev.penilaianSikap || [];
+      const studentIds = new Set(studentsInClass.map((s) => s.id));
+      const remaining = prevList.filter((s) => !studentIds.has(s.muridId));
+      return {
+        ...prev,
+        penilaianSikap: [...remaining, ...newRecords],
+      };
+    });
+
+    setToastMessage(`Berhasil menyimpan penilaian sikap ${studentsInClass.length} murid!`);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   // Open modal to score a student
   const handleOpenScoreModal = (murid: User) => {
@@ -429,6 +757,14 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Toast Alert */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -524,7 +860,7 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
 
           <div className="flex items-center gap-2 flex-wrap">
             {activeTab === 'entri' ? (
-              <>
+              <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto">
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value as any)}
@@ -535,14 +871,49 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
                   <option value="Belum">Belum Dinilai</option>
                 </select>
 
-                <button
-                  type="button"
-                  onClick={() => handleBatchAssess(4)}
-                  className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-emerald-200"
-                >
-                  Isi Cepat Semua (Sangat Baik)
-                </button>
-              </>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold text-slate-400 mr-1 hidden sm:inline">Centang Cepat:</span>
+                  <button
+                    type="button"
+                    onClick={handleBatchChecklistSemuaSB}
+                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-emerald-200 flex items-center gap-1"
+                    title="Centang semua murid dengan predikat Sangat Baik (SB)"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Semua Sangat Baik</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleBatchChecklistSemuaBaik}
+                    className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-sky-200 flex items-center gap-1"
+                    title="Centang semua murid dengan predikat Baik (B)"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Semua Baik</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleBatchChecklist5Dimensi}
+                    className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-purple-200 flex items-center gap-1"
+                    title="Centang 5 dimensi sikap positif untuk seluruh murid"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Centang 5 Dimensi</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveAllSikapChecklist}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-auto"
+                    title="Simpan semua data centang sikap murid di kelas ini"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Langsung Simpan Semua</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               <>
                 <button
@@ -570,11 +941,23 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
       {/* Main Content: Entri List or Rekapan Table */}
       {activeTab === 'entri' ? (
         <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-          <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-600">
-            <span>Daftar Murid Kelas {currentKelas?.nama} ({filteredStudents.length} Murid)</span>
-            <span className="text-slate-400 font-semibold hidden sm:inline">
-              Klik tombol &quot;Nilai Sikap&quot; untuk input asesmen
-            </span>
+          {/* Header Bar */}
+          <div className="p-4 bg-gradient-to-r from-emerald-50/80 via-teal-50/50 to-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div>
+              <span className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                <CheckSquare className="w-4 h-4 text-emerald-600" />
+                Mode Centang Cepat Sikap Murid ({filteredStudents.length} Murid Kelas {currentKelas?.nama})
+              </span>
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                Tinggal centang dimensi sikap (Fair Play, Disiplin, Gotong Royong, Sportif, T. Jawab) atau centang predikat (SB, B, C, PB), langsung klik Simpan!
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-600 font-bold shrink-0 flex-wrap">
+              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">SB: Sangat Baik</span>
+              <span className="px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md">B: Baik</span>
+              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md">C: Cukup</span>
+              <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-md">PB: Perlu Bimbingan</span>
+            </div>
           </div>
 
           {filteredStudents.length === 0 ? (
@@ -585,14 +968,25 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
           ) : (
             <div className="divide-y divide-slate-100">
               {filteredStudents.map((murid, idx) => {
+                const chk = sikapChecklistData[murid.id] || {
+                  integritas: true,
+                  disiplin: true,
+                  kerjaSama: true,
+                  sportivitas: true,
+                  tanggungJawab: true,
+                  customPredikat: 'Sangat Baik',
+                  catatan: '',
+                };
+                const computed = computeSikapFromChecklist(murid.id);
                 const assessment = assessmentsMap.get(murid.id);
 
                 return (
                   <div
                     key={murid.id}
-                    className="p-4 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
+                    className="p-4 sm:px-6 flex flex-col xl:flex-row xl:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
                   >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* Left: Identity & Predikat Badge */}
+                    <div className="flex items-center gap-3 min-w-0 min-w-[200px] flex-1">
                       <span className="text-xs font-bold text-slate-400 w-6 text-right shrink-0">
                         {idx + 1}.
                       </span>
@@ -600,47 +994,178 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
                         {murid.name.charAt(0)}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-extrabold text-slate-900 text-sm truncate">{murid.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-slate-900 text-sm truncate">{murid.name}</h3>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                              SKOR_SIKAP_LABEL[Math.round(computed.rataRata || 4)]?.badge ||
+                              'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            }`}
+                          >
+                            {computed.predikat} ({computed.rataRata.toFixed(1)})
+                          </span>
+                        </div>
                         <p className="text-xs text-slate-400">
                           NIS: <strong className="text-slate-600 font-semibold">{murid.nis || '-'}</strong>
+                          {assessment && (
+                            <span className="text-emerald-600 font-semibold ml-2">
+                              • Tersimpan ({assessment.tanggal})
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>
 
-                    {/* Status & Predikat */}
-                    <div className="flex items-center gap-3 shrink-0">
-                      {assessment ? (
-                        <div className="text-left sm:text-right">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            {assessment.predikat} ({assessment.rataRata?.toFixed(1)})
-                          </span>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Dinilai: {assessment.tanggal}
-                          </p>
-                        </div>
-                      ) : (
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">
-                          Belum Dinilai
+                    {/* Middle: Kotak Centang 5 Dimensi Sikap PJOK */}
+                    <div className="flex items-center gap-1.5 flex-wrap bg-slate-50 p-2 rounded-2xl border border-slate-200/80">
+                      <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all bg-white hover:bg-slate-50 text-[11px] font-bold select-none">
+                        <input
+                          type="checkbox"
+                          checked={chk.integritas}
+                          onChange={() => handleToggleAspect(murid.id, 'integritas')}
+                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                        />
+                        <span className={chk.integritas ? 'text-emerald-800' : 'text-slate-400'}>
+                          Fair Play
                         </span>
-                      )}
+                      </label>
+
+                      <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all bg-white hover:bg-slate-50 text-[11px] font-bold select-none">
+                        <input
+                          type="checkbox"
+                          checked={chk.disiplin}
+                          onChange={() => handleToggleAspect(murid.id, 'disiplin')}
+                          className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        />
+                        <span className={chk.disiplin ? 'text-sky-800' : 'text-slate-400'}>
+                          Disiplin
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all bg-white hover:bg-slate-50 text-[11px] font-bold select-none">
+                        <input
+                          type="checkbox"
+                          checked={chk.kerjaSama}
+                          onChange={() => handleToggleAspect(murid.id, 'kerjaSama')}
+                          className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className={chk.kerjaSama ? 'text-indigo-800' : 'text-slate-400'}>
+                          Kerja Sama
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all bg-white hover:bg-slate-50 text-[11px] font-bold select-none">
+                        <input
+                          type="checkbox"
+                          checked={chk.sportivitas}
+                          onChange={() => handleToggleAspect(murid.id, 'sportivitas')}
+                          className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span className={chk.sportivitas ? 'text-amber-800' : 'text-slate-400'}>
+                          Sportivitas
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer transition-all bg-white hover:bg-slate-50 text-[11px] font-bold select-none">
+                        <input
+                          type="checkbox"
+                          checked={chk.tanggungJawab}
+                          onChange={() => handleToggleAspect(murid.id, 'tanggungJawab')}
+                          className="w-3.5 h-3.5 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                        />
+                        <span className={chk.tanggungJawab ? 'text-teal-800' : 'text-slate-400'}>
+                          T. Jawab
+                        </span>
+                      </label>
+
+                      {/* Kotak Centang Predikat Cepat */}
+                      <div className="flex items-center gap-1 border-l border-slate-200 pl-1.5">
+                        {(['Sangat Baik', 'Baik', 'Cukup', 'Perlu Bimbingan'] as const).map((p) => {
+                          const isSelected = computed.predikat === p;
+                          const labelShort =
+                            p === 'Sangat Baik'
+                              ? 'SB'
+                              : p === 'Baik'
+                              ? 'B'
+                              : p === 'Cukup'
+                              ? 'C'
+                              : 'PB';
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => handleSetPredikatQuick(murid.id, p)}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-black cursor-pointer border transition-all ${
+                                isSelected
+                                  ? p === 'Sangat Baik'
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                    : p === 'Baik'
+                                    ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                                    : p === 'Cukup'
+                                    ? 'bg-amber-500 text-white border-amber-500 shadow-2xs'
+                                    : 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                              title={`Centang predikat ${p}`}
+                            >
+                              {isSelected ? '✓ ' : ''}
+                              {labelShort}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Right: Note & Action Buttons */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <input
+                        type="text"
+                        placeholder="Catatan sikap..."
+                        value={chk.catatan || ''}
+                        onChange={(e) => handleSetCatatanChecklist(murid.id, e.target.value)}
+                        className="w-full sm:w-28 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:bg-white focus:outline-hidden"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => handleSaveSingleSikapChecklist(murid.id)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1 shrink-0"
+                        title="Langsung simpan nilai sikap murid ini"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Simpan</span>
+                      </button>
 
                       <button
                         type="button"
                         onClick={() => handleOpenScoreModal(murid)}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          assessment
-                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                            : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                        }`}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                        title="Form rubrik skala angka lengkap"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>{assessment ? 'Ubah Sikap' : 'Nilai Sikap'}</span>
+                        <Edit3 className="w-3 h-3 text-slate-500" />
+                        <span>Detail</span>
                       </button>
                     </div>
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Bottom Save Bar */}
+          {filteredStudents.length > 0 && (
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 font-medium">
+                Semua centang sikap murid siap disimpan ke sistem rapor & evaluasi karakter PJOK.
+              </span>
+              <button
+                type="button"
+                onClick={handleSaveAllSikapChecklist}
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Simpan Penilaian Sikap ({filteredStudents.length} Murid)</span>
+              </button>
             </div>
           )}
         </div>

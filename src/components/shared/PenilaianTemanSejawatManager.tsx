@@ -34,17 +34,23 @@ import {
   DimensiAsesmenItem,
   DimensiTemanSejawatConfig,
   SkorDimensi,
+  TugasPenilaianAntarTeman,
+  IndikatorPenilaianItem,
 } from '../../types';
 import {
   dataStorage,
   LMSDatabase,
   DEFAULT_DIMENSI_TEMAN_SEJAWAT,
 } from '../../services/dataStorage';
+import { BankIndikatorModal } from './BankIndikatorModal';
+import { TugasPenilaianAntarTemanModal } from './TugasPenilaianAntarTemanModal';
+import { FormPenilaianMuridModal } from './FormPenilaianMuridModal';
+import { TugasPenilaianAntarTemanView } from './TugasPenilaianAntarTemanView';
 
 interface PenilaianTemanSejawatManagerProps {
   db: LMSDatabase;
   currentUser: User;
-  initialTab?: 'daftar' | 'rekap';
+  initialTab?: 'daftar' | 'rekap' | 'tugas';
 }
 
 export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManagerProps> = ({
@@ -71,8 +77,8 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
     return availableClasses.length > 0 ? availableClasses[0].id : '';
   });
 
-  const [activeTab, setActiveTab] = useState<'daftar' | 'rekap'>(
-    initialTab || 'daftar'
+  const [activeTab, setActiveTab] = useState<'tugas' | 'bank-indikator' | 'rekap' | 'daftar'>(
+    initialTab === 'rekap' ? 'rekap' : 'tugas'
   );
 
   useEffect(() => {
@@ -81,8 +87,16 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
     }
   }, [initialTab]);
 
-  // Tab for Murid: 'diterima' | 'diberikan'
-  const [muridTab, setMuridTab] = useState<'diterima' | 'diberikan'>('diterima');
+  // Tab for Murid: 'tugas-murid' | 'diterima' | 'diberikan'
+  const [muridTab, setMuridTab] = useState<'tugas-murid' | 'diterima' | 'diberikan'>('tugas-murid');
+
+  // New Modals State
+  const [isTugasModalOpen, setIsTugasModalOpen] = useState(false);
+  const [taskToEdit, setTaskToEdit] = useState<TugasPenilaianAntarTeman | null>(null);
+  const [isBankIndikatorModalOpen, setIsBankIndikatorModalOpen] = useState(false);
+  const [isStudentFormModalOpen, setIsStudentFormModalOpen] = useState(false);
+  const [activeTaskForEval, setActiveTaskForEval] = useState<TugasPenilaianAntarTeman | null>(null);
+  const [recordToEdit, setRecordToEdit] = useState<PenilaianTemanSejawat | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -688,84 +702,133 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
               {isMurid
-                ? 'Penilaian Teman Sejawat PJOK'
+                ? 'Penilaian Antar Teman PJOK'
                 : activeTab === 'rekap'
-                ? 'Rekapan Penilaian Teman Sejawat'
-                : 'Penilaian Teman Sejawat'}
+                ? 'Rekapan Penilaian Antar Teman'
+                : 'Penilaian Antar Teman'}
             </h1>
             <p className="text-xs text-slate-500 leading-relaxed max-w-3xl mt-1">
               {isMurid
-                ? 'Amati dan berikan apresiasi positif, upload link dokumentasi, serta nilai kerja sama dan sportivitas rekan sekelasmu selama kegiatan olahraga.'
-                : 'Fasilitasi asesmen autentik antar peserta didik dengan skala penilaian 1-5 dalam kotak, link dokumentasi, apresiasi rekan, dan rekapitulasi kelas.'}
+                ? 'Amati dan berikan apresiasi positif, unggah foto/video bukti gerakan, serta nilai capaian teknik rekan sekelasmu secara jujur dan suportif.'
+                : 'Kelola tugas penilaian antar teman, bank indikator rubrik capaian gerak skala 1-4, izin unggah video/foto bukti, dan rekapitulasi penilaian kelas.'}
             </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {!isMurid && (
-              <button
-                type="button"
-                onClick={() => handleOpenManageDimensi(selectedKelasId)}
-                className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                title="Atur aspek/dimensi asesmen yang akan dinilai oleh guru maupun murid"
-              >
-                <Sliders className="w-4 h-4 text-amber-700" />
-                <span>Atur Dimensi Asesmen (1-5)</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsBankIndikatorModalOpen(true)}
+                  className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Kelola Bank Indikator Rubrik Skala 1-4"
+                >
+                  <Sliders className="w-4 h-4 text-amber-700" />
+                  <span>Bank Indikator (1-4)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaskToEdit(null);
+                    setIsTugasModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Buat Tugas Penilaian Antar Teman</span>
+                </button>
+              </>
             )}
 
             <button
               type="button"
               onClick={handleOpenAddModal}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+              className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>
-                {isMurid
-                  ? '+ Beri Penilaian untuk Teman'
-                  : '+ Tambah Penilaian Antarteman (1-5)'}
-              </span>
+              <Plus className="w-4 h-4 text-slate-500" />
+              <span>{isMurid ? '+ Nilai Teman Manual' : '+ Entri Nilai Manual'}</span>
             </button>
           </div>
         </div>
 
         {/* Tab Navigation for GURU / ADMIN */}
         {!isMurid && (
-          <div className="flex items-center gap-2 border-b border-slate-200 pt-1">
+          <div className="flex items-center gap-2 border-b border-slate-200 pt-1 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('tugas')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                activeTab === 'tugas'
+                  ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>Tugas Penilaian Antar Teman</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('bank-indikator')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                activeTab === 'bank-indikator'
+                  ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Bank Indikator ({db.bankIndikatorPenilaian?.length || 0})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('rekap')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                activeTab === 'rekap'
+                  ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Award className="w-4 h-4" />
+              <span>Rekapan Nilai Antar Teman</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('daftar')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                 activeTab === 'daftar'
                   ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
               <Users2 className="w-4 h-4" />
-              <span>Daftar & Entri Penilaian</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('rekap')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                activeTab === 'rekap'
-                  ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <ClipboardList className="w-4 h-4" />
-              <span>Rekapan Penilaian Teman Sejawat</span>
+              <span>Riwayat Entri Penilaian</span>
             </button>
           </div>
         )}
 
         {/* Tab Navigation for MURID */}
         {isMurid && (
-          <div className="flex items-center gap-2 border-b border-slate-200 pt-1">
+          <div className="flex items-center gap-2 border-b border-slate-200 pt-1 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setMuridTab('tugas-murid')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                muridTab === 'tugas-murid'
+                  ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>Tugas Penilaian Antar Teman</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setMuridTab('diterima')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                 muridTab === 'diterima'
                   ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -778,7 +841,7 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
             <button
               type="button"
               onClick={() => setMuridTab('diberikan')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                 muridTab === 'diberikan'
                   ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50 rounded-t-xl'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -857,6 +920,21 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
       {/* ---------------- MURID VIEW ---------------- */}
       {isMurid && (
         <div className="space-y-6">
+          {/* Murid Tab: Tugas Penilaian Antar Teman */}
+          {muridTab === 'tugas-murid' && (
+            <TugasPenilaianAntarTemanView
+              db={db}
+              currentUser={currentUser}
+              onOpenCreateTask={() => {}}
+              onOpenEditTask={() => {}}
+              onEvaluatePeer={(task) => {
+                setActiveTaskForEval(task);
+                setRecordToEdit(null);
+                setIsStudentFormModalOpen(true);
+              }}
+            />
+          )}
+
           {/* Summary Banner for Murid */}
           {muridTab === 'diterima' && (
             <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-3xl p-6 text-white shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -1021,46 +1099,97 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
                           <p className="text-[11px] text-slate-400 mt-1">Tanggal: {rec.tanggal}</p>
                         </div>
 
-                        <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg text-xs font-black self-start sm:self-auto">
-                          Skor: {rec.rataRata?.toFixed(1) || '5.0'} / 5.0
-                        </span>
+                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                          <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg text-xs font-black">
+                            Skor: {rec.rataRata?.toFixed(1) || '5.0'} / 5.0
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const matched =
+                                (db.tugasPenilaianAntarTeman || []).find((t) => t.id === rec.tugasId) ||
+                                (db.tugasPenilaianAntarTeman || [])[0];
+                              if (matched) {
+                                setActiveTaskForEval(matched);
+                                setRecordToEdit(rec);
+                                setIsStudentFormModalOpen(true);
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Edit penilaian sebelum batas waktu"
+                          >
+                            <Sliders className="w-3 h-3 text-indigo-600" />
+                            <span>Edit Nilai</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Score Boxes 1-5 */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                        {rec.dimensiScores && rec.dimensiScores.length > 0 ? (
-                          rec.dimensiScores.map((ds, dIdx) => (
+                      {/* Rubric Indicators Scale Display (1-4) */}
+                      {rec.nilaiIndikator && rec.nilaiIndikator.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          {rec.nilaiIndikator.map((ni, nIdx) => (
                             <div
-                              key={ds.dimensiId || dIdx}
-                              className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center"
+                              key={ni.indikatorId || nIdx}
+                              className="p-2.5 rounded-xl bg-indigo-50/40 border border-indigo-100 space-y-1 text-xs"
                             >
-                              <span className="text-[10px] text-slate-500 block font-semibold truncate" title={ds.nama}>
-                                {ds.nama}
+                              <div className="flex items-center justify-between font-bold">
+                                <span className="text-slate-800 line-clamp-1">
+                                  {ni.judul || ni.pernyataan}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-black shrink-0">
+                                  Skala {ni.skor}/4
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-indigo-900 font-semibold block">
+                                {ni.levelLabel}
                               </span>
-                              <span className="text-sm font-black text-slate-800">{ds.skor} / 5</span>
+                              {ni.deskripsiCapaian && (
+                                <p className="text-[10px] text-slate-500 line-clamp-2 italic">
+                                  {ni.deskripsiCapaian}
+                                </p>
+                              )}
                             </div>
-                          ))
-                        ) : (
-                          <>
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                              <span className="text-[10px] text-slate-400 block font-semibold">Kerja Sama</span>
-                              <span className="text-sm font-black text-slate-800">{rec.skorKerjaSama} / 5</span>
-                            </div>
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                              <span className="text-[10px] text-slate-400 block font-semibold">Sportivitas</span>
-                              <span className="text-sm font-black text-slate-800">{rec.skorSportivitas} / 5</span>
-                            </div>
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                              <span className="text-[10px] text-slate-400 block font-semibold">Komunikasi</span>
-                              <span className="text-sm font-black text-slate-800">{rec.skorKomunikasi} / 5</span>
-                            </div>
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
-                              <span className="text-[10px] text-slate-400 block font-semibold">Tanggung Jawab</span>
-                              <span className="text-sm font-black text-slate-800">{rec.skorTanggungJawab} / 5</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Score Boxes 1-5 fallback */}
+                      {(!rec.nilaiIndikator || rec.nilaiIndikator.length === 0) && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                          {rec.dimensiScores && rec.dimensiScores.length > 0 ? (
+                            rec.dimensiScores.map((ds, dIdx) => (
+                              <div
+                                key={ds.dimensiId || dIdx}
+                                className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center"
+                              >
+                                <span className="text-[10px] text-slate-500 block font-semibold truncate" title={ds.nama}>
+                                  {ds.nama}
+                                </span>
+                                <span className="text-sm font-black text-slate-800">{ds.skor} / 5</span>
+                              </div>
+                            ))
+                          ) : (
+                            <>
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                                <span className="text-[10px] text-slate-400 block font-semibold">Kerja Sama</span>
+                                <span className="text-sm font-black text-slate-800">{rec.skorKerjaSama} / 5</span>
+                              </div>
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                                <span className="text-[10px] text-slate-400 block font-semibold">Sportivitas</span>
+                                <span className="text-sm font-black text-slate-800">{rec.skorSportivitas} / 5</span>
+                              </div>
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                                <span className="text-[10px] text-slate-400 block font-semibold">Komunikasi</span>
+                                <span className="text-sm font-black text-slate-800">{rec.skorKomunikasi} / 5</span>
+                              </div>
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                                <span className="text-[10px] text-slate-400 block font-semibold">Tanggung Jawab</span>
+                                <span className="text-sm font-black text-slate-800">{rec.skorTanggungJawab} / 5</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {rec.catatanPositif && (
                         <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 leading-relaxed italic">
@@ -1088,6 +1217,93 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ---------------- GURU / ADMIN VIEW ---------------- */}
+      {!isMurid && activeTab === 'tugas' && (
+        <TugasPenilaianAntarTemanView
+          db={db}
+          currentUser={currentUser}
+          onOpenCreateTask={() => {
+            setTaskToEdit(null);
+            setIsTugasModalOpen(true);
+          }}
+          onOpenEditTask={(task) => {
+            setTaskToEdit(task);
+            setIsTugasModalOpen(true);
+          }}
+          onEvaluatePeer={(task) => {
+            setActiveTaskForEval(task);
+            setRecordToEdit(null);
+            setIsStudentFormModalOpen(true);
+          }}
+          onViewRekapTask={() => setActiveTab('rekap')}
+        />
+      )}
+
+      {!isMurid && activeTab === 'bank-indikator' && (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-slate-900">
+                Bank Indikator Rubrik Penilaian Antar Teman (Skala 1 - 4)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Koleksi indikator capaian gerak yang siap digunakan untuk tugas penilaian antar rekan.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsBankIndikatorModalOpen(true)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Kelola & Input Indikator Manual</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            {(db.bankIndikatorPenilaian || []).map((item) => (
+              <div
+                key={item.id}
+                className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-indigo-300 transition-all space-y-2 shadow-2xs"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-800 text-[11px] font-black flex items-center justify-center">
+                      #{item.urutan}
+                    </span>
+                    <h4 className="text-xs font-black text-slate-900">{item.judulPenilaian}</h4>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      item.status === 'AKTIF'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {item.status}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 font-medium">{item.pernyataanIndikator}</p>
+                <div className="grid grid-cols-2 gap-1.5 text-[10px] pt-1">
+                  <div className="p-1.5 rounded bg-rose-50 border border-rose-100 text-rose-900 truncate">
+                    1. {item.skala1PerluBimbingan}
+                  </div>
+                  <div className="p-1.5 rounded bg-amber-50 border border-amber-100 text-amber-900 truncate">
+                    2. {item.skala2MulaiBerkembang}
+                  </div>
+                  <div className="p-1.5 rounded bg-sky-50 border border-sky-100 text-sky-900 truncate">
+                    3. {item.skala3BerkembangSesuaiHarapan}
+                  </div>
+                  <div className="p-1.5 rounded bg-emerald-50 border border-emerald-100 text-emerald-900 truncate">
+                    4. {item.skala4BerkembangSangatBaik}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1946,6 +2162,41 @@ export const PenilaianTemanSejawatManager: React.FC<PenilaianTemanSejawatManager
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL BUAT / EDIT TUGAS PENILAIAN ANTAR TEMAN */}
+      <TugasPenilaianAntarTemanModal
+        isOpen={isTugasModalOpen}
+        onClose={() => {
+          setIsTugasModalOpen(false);
+          setTaskToEdit(null);
+        }}
+        db={db}
+        currentUser={currentUser}
+        taskToEdit={taskToEdit}
+      />
+
+      {/* MODAL BANK INDIKATOR MANUAL */}
+      <BankIndikatorModal
+        isOpen={isBankIndikatorModalOpen}
+        onClose={() => setIsBankIndikatorModalOpen(false)}
+        db={db}
+      />
+
+      {/* MODAL PENGISIAN / EDIT PENILAIAN OLEH MURID DENGAN RUBRIK SKALA 1-4 */}
+      {activeTaskForEval && (
+        <FormPenilaianMuridModal
+          isOpen={isStudentFormModalOpen}
+          onClose={() => {
+            setIsStudentFormModalOpen(false);
+            setActiveTaskForEval(null);
+            setRecordToEdit(null);
+          }}
+          db={db}
+          currentUser={currentUser}
+          task={activeTaskForEval}
+          existingRecord={recordToEdit}
+        />
       )}
     </div>
   );

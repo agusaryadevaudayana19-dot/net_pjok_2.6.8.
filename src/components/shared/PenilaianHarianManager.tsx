@@ -127,7 +127,271 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
     return map;
   }, [db.penilaianHarian, selectedKelasId, selectedTanggal, activeMateriJudul]);
 
-  // Handle setting a student's score 1-5
+  // Kotak Centang State for quick participation entry
+  interface StudentChecklist {
+    bisaMenjawabCount: number; // 0, 1, 2, 3+
+    memberikanMasukan: boolean;
+    mauAktif: boolean;
+    customSkor?: number;
+    catatan: string;
+  }
+
+  const [checklistData, setChecklistData] = useState<Record<string, StudentChecklist>>({});
+
+  // Sync checklist state when class, date, or records change
+  React.useEffect(() => {
+    const initial: Record<string, StudentChecklist> = {};
+    studentsInClass.forEach((s) => {
+      const rec = currentRecordsMap.get(s.id);
+      if (rec) {
+        initial[s.id] = {
+          bisaMenjawabCount: rec.bisaMenjawabCount ?? (rec.skor >= 4 ? 1 : 0),
+          memberikanMasukan: rec.memberikanMasukan ?? (rec.skor === 5),
+          mauAktif: rec.mauAktif ?? (rec.skor >= 3),
+          customSkor: rec.skor,
+          catatan: rec.catatan || '',
+        };
+      } else {
+        initial[s.id] = {
+          bisaMenjawabCount: 0,
+          memberikanMasukan: false,
+          mauAktif: true, // Default siswa di kelas PJOK bersiap aktif
+          catatan: '',
+        };
+      }
+    });
+    setChecklistData(initial);
+  }, [studentsInClass, currentRecordsMap]);
+
+  // Function to calculate score 1-5 from checkboxes
+  const computeStudentScore = (sId: string): number => {
+    const c = checklistData[sId];
+    if (!c) return 3;
+    if (c.customSkor) return c.customSkor;
+    let s = 1;
+    if (c.mauAktif) s += 2; // Aktif = 3 (Cukup)
+    if (c.bisaMenjawabCount >= 1) s += 1; // Menjawab 1x = 4 (Baik)
+    if (c.bisaMenjawabCount >= 2 || c.memberikanMasukan) s += 1; // Menjawab 2x+ / Masukan = 5 (Sangat Baik)
+    return Math.min(5, Math.max(1, s));
+  };
+
+  const handleToggleMauAktif = (muridId: string) => {
+    setChecklistData((prev) => {
+      const current = prev[muridId] || { bisaMenjawabCount: 0, memberikanMasukan: false, mauAktif: true, catatan: '' };
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          mauAktif: !current.mauAktif,
+          customSkor: undefined, // Recalculate
+        },
+      };
+    });
+  };
+
+  const handleToggleMasukan = (muridId: string) => {
+    setChecklistData((prev) => {
+      const current = prev[muridId] || { bisaMenjawabCount: 0, memberikanMasukan: false, mauAktif: true, catatan: '' };
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          memberikanMasukan: !current.memberikanMasukan,
+          customSkor: undefined,
+        },
+      };
+    });
+  };
+
+  const handleSetBisaMenjawab = (muridId: string, count: number) => {
+    setChecklistData((prev) => {
+      const current = prev[muridId] || { bisaMenjawabCount: 0, memberikanMasukan: false, mauAktif: true, catatan: '' };
+      const newCount = current.bisaMenjawabCount === count ? 0 : count;
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          bisaMenjawabCount: newCount,
+          customSkor: undefined,
+        },
+      };
+    });
+  };
+
+  const handleSetCustomScore = (muridId: string, score: number) => {
+    setChecklistData((prev) => {
+      const current = prev[muridId] || { bisaMenjawabCount: 0, memberikanMasukan: false, mauAktif: true, catatan: '' };
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          customSkor: score,
+        },
+      };
+    });
+  };
+
+  const handleChecklistNoteChange = (muridId: string, note: string) => {
+    setChecklistData((prev) => {
+      const current = prev[muridId] || { bisaMenjawabCount: 0, memberikanMasukan: false, mauAktif: true, catatan: '' };
+      return {
+        ...prev,
+        [muridId]: {
+          ...current,
+          catatan: note,
+        },
+      };
+    });
+  };
+
+  // Quick Action: Centang Semua Mau Aktif
+  const handleBatchCentangSemuaAktif = () => {
+    setChecklistData((prev) => {
+      const next = { ...prev };
+      studentsInClass.forEach((s) => {
+        next[s.id] = {
+          ...(next[s.id] || { bisaMenjawabCount: 0, memberikanMasukan: false, catatan: '' }),
+          mauAktif: true,
+          customSkor: undefined,
+        };
+      });
+      return next;
+    });
+    setToastMessage(`Semua ${studentsInClass.length} murid dicentang Mau Aktif [✓]`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  // Quick Action: Centang Menjawab 1x Semua
+  const handleBatchCentangMenjawab = () => {
+    setChecklistData((prev) => {
+      const next = { ...prev };
+      studentsInClass.forEach((s) => {
+        next[s.id] = {
+          ...(next[s.id] || { memberikanMasukan: false, mauAktif: true, catatan: '' }),
+          bisaMenjawabCount: 1,
+          customSkor: undefined,
+        };
+      });
+      return next;
+    });
+    setToastMessage(`Semua murid dicentang Bisa Menjawab 1x [✓]`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  // SAVE ALL CHECKLISTS DIRECTLY
+  const handleSaveAllChecklists = () => {
+    if (studentsInClass.length === 0) return;
+
+    const newRecords: PenilaianHarian[] = studentsInClass.map((m) => {
+      const c = checklistData[m.id] || {
+        bisaMenjawabCount: 0,
+        memberikanMasukan: false,
+        mauAktif: true,
+        catatan: '',
+      };
+      const existing = currentRecordsMap.get(m.id);
+      const computedScore = computeStudentScore(m.id);
+
+      return {
+        id: existing?.id || `ph-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        muridId: m.id,
+        muridNama: m.name,
+        nis: m.nis,
+        kelasId: selectedKelasId,
+        kelasNama: currentKelas?.nama || selectedKelasId,
+        tanggal: selectedTanggal,
+        pertemuanKe,
+        materi: activeMateriJudul,
+        skor: computedScore,
+        aspek: aspekPenilaian,
+        bisaMenjawabCount: c.bisaMenjawabCount,
+        memberikanMasukan: c.memberikanMasukan,
+        mauAktif: c.mauAktif,
+        catatan: c.catatan || existing?.catatan || '',
+        guruId: currentUser.id,
+        guruNama: currentUser.name,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    dataStorage.updateDatabase((prev) => {
+      const prevList = prev.penilaianHarian || [];
+      const studentIds = new Set(studentsInClass.map((s) => s.id));
+      const remaining = prevList.filter(
+        (r) =>
+          !(
+            studentIds.has(r.muridId) &&
+            r.kelasId === selectedKelasId &&
+            r.tanggal === selectedTanggal &&
+            r.materi === activeMateriJudul
+          )
+      );
+      return {
+        ...prev,
+        penilaianHarian: [...remaining, ...newRecords],
+      };
+    });
+
+    setToastMessage(`Berhasil menyimpan penilaian harian untuk ${studentsInClass.length} murid!`);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Direct save for a single student row
+  const handleSaveSingleChecklist = (muridId: string) => {
+    const murid = studentsInClass.find((s) => s.id === muridId);
+    if (!murid) return;
+    const c = checklistData[muridId] || {
+      bisaMenjawabCount: 0,
+      memberikanMasukan: false,
+      mauAktif: true,
+      catatan: '',
+    };
+    const existing = currentRecordsMap.get(muridId);
+    const computedScore = computeStudentScore(muridId);
+
+    const newRecord: PenilaianHarian = {
+      id: existing?.id || `ph-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      muridId: murid.id,
+      muridNama: murid.name,
+      nis: murid.nis,
+      kelasId: selectedKelasId,
+      kelasNama: currentKelas?.nama || selectedKelasId,
+      tanggal: selectedTanggal,
+      pertemuanKe,
+      materi: activeMateriJudul,
+      skor: computedScore,
+      aspek: aspekPenilaian,
+      bisaMenjawabCount: c.bisaMenjawabCount,
+      memberikanMasukan: c.memberikanMasukan,
+      mauAktif: c.mauAktif,
+      catatan: c.catatan || existing?.catatan || '',
+      guruId: currentUser.id,
+      guruNama: currentUser.name,
+      updatedAt: new Date().toISOString(),
+    };
+
+    dataStorage.updateDatabase((prev) => {
+      const prevList = prev.penilaianHarian || [];
+      const remaining = prevList.filter(
+        (r) =>
+          !(
+            r.muridId === muridId &&
+            r.kelasId === selectedKelasId &&
+            r.tanggal === selectedTanggal &&
+            r.materi === activeMateriJudul
+          )
+      );
+      return {
+        ...prev,
+        penilaianHarian: [...remaining, newRecord],
+      };
+    });
+
+    setToastMessage(`Tersimpan: ${murid.name} (Skor ${computedScore})`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  // Handle setting a student's score 1-5 manually
   const handleSetScore = (murid: User, score: number) => {
     const existing = currentRecordsMap.get(murid.id);
 
@@ -322,23 +586,34 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
               Penilaian Harian PJOK
             </h1>
             <p className="text-xs text-slate-500 leading-relaxed max-w-3xl mt-1">
-              Input penilaian cepat langsung saat jam olahraga di lapangan. Cukup sentuh tombol angka 1 sampai 5 untuk setiap murid guna mencatat keaktifan, keterlibatan, dan capaian gerak harian.
+              Asesmen cepat keaktifan lapangan: cukup isi <strong>kotak centang</strong> (berapa kali bisa menjawab, memberikan masukan, dan mau aktif), nilai otomatis terhitung dan langsung klik <strong>Simpan</strong>.
             </p>
           </div>
 
-          {/* Quick Stats Banner */}
-          <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 shrink-0">
-            <div className="text-center px-2">
-              <span className="text-[10px] font-bold text-slate-400 block uppercase">Ternilai</span>
-              <span className="text-base font-black text-slate-800">
-                {stats.count} / {stats.total}
-              </span>
+          {/* Quick Stats & Primary Save Button */}
+          <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+            <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+              <div className="text-center px-2">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Ternilai</span>
+                <span className="text-base font-black text-slate-800">
+                  {stats.count} / {stats.total}
+                </span>
+              </div>
+              <div className="w-px h-8 bg-slate-200" />
+              <div className="text-center px-2">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Rata-rata</span>
+                <span className="text-base font-black text-sky-600">{stats.avg} / 5</span>
+              </div>
             </div>
-            <div className="w-px h-8 bg-slate-200" />
-            <div className="text-center px-2">
-              <span className="text-[10px] font-bold text-slate-400 block uppercase">Rata-rata</span>
-              <span className="text-base font-black text-sky-600">{stats.avg} / 5</span>
-            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveAllChecklists}
+              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black shadow-md shadow-emerald-200 transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>Simpan Penilaian Harian</span>
+            </button>
           </div>
         </div>
 
@@ -397,18 +672,23 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
           </div>
         </div>
 
-        {/* Legend Skor 1-5 */}
+        {/* Legend Petunjuk Centang */}
         <div className="p-3 bg-sky-50/60 rounded-2xl border border-sky-100 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-1.5 font-bold text-sky-950">
-            <Info className="w-4 h-4 text-sky-600 shrink-0" />
-            <span>Rubrik Skala 1 - 5:</span>
+            <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
+            <span>Petunjuk Kotak Centang Keaktifan:</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap text-[11px]">
-            <span className="px-2 py-0.5 rounded-lg bg-rose-100 text-rose-800 font-bold">1 = Perlu Bimbingan</span>
-            <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 font-bold">2 = Kurang</span>
-            <span className="px-2 py-0.5 rounded-lg bg-yellow-100 text-yellow-900 font-bold">3 = Cukup</span>
-            <span className="px-2 py-0.5 rounded-lg bg-sky-100 text-sky-800 font-bold">4 = Baik</span>
-            <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 font-bold">5 = Sangat Baik / Mahir</span>
+            <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 font-bold">
+              [✓] Mau Aktif (+skor gerak)
+            </span>
+            <span className="px-2 py-0.5 rounded-lg bg-sky-100 text-sky-800 font-bold">
+              [✓] Bisa Menjawab (1x, 2x, 3x)
+            </span>
+            <span className="px-2 py-0.5 rounded-lg bg-purple-100 text-purple-800 font-bold">
+              [✓] Memberikan Masukan / Ide
+            </span>
+            <span className="text-slate-500 font-semibold">• Nilai 1-5 otomatis terisi</span>
           </div>
         </div>
       </div>
@@ -444,22 +724,24 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
 
         {/* Bulk Action Buttons */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-bold text-slate-400 mr-1">Aksi Cepat:</span>
+          <span className="text-[11px] font-bold text-slate-400 mr-1">Centang Cepat:</span>
           <button
             type="button"
-            onClick={() => handleBatchSetAll(4)}
-            className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-sky-200"
-            title="Setel semua murid di kelas ini ke skor 4"
+            onClick={handleBatchCentangSemuaAktif}
+            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-emerald-200 flex items-center gap-1"
+            title="Centang semua murid mau aktif"
           >
-            Semua Skor 4 (Baik)
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Semua Mau Aktif</span>
           </button>
           <button
             type="button"
-            onClick={() => handleBatchSetAll(5)}
-            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-emerald-200"
-            title="Setel semua murid di kelas ini ke skor 5"
+            onClick={handleBatchCentangMenjawab}
+            className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-sky-200 flex items-center gap-1"
+            title="Centang semua murid menjawab 1x"
           >
-            Semua Skor 5 (Sangat Baik)
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Semua Menjawab 1x</span>
           </button>
           <button
             type="button"
@@ -468,15 +750,24 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
           >
             Kosongkan
           </button>
+          <button
+            type="button"
+            onClick={handleSaveAllChecklists}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-auto"
+            title="Simpan semua data centang yang ada di layar"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>Langsung Simpan Semua</span>
+          </button>
         </div>
       </div>
 
-      {/* Student List with 1-5 Buttons */}
+      {/* Student List with Kotak Centang & Score Display */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
           <span>Daftar Peserta Didik ({filteredStudents.length} Murid)</span>
-          <span className="text-slate-400 font-semibold hidden sm:inline">
-            Sentuh angka 1 - 5 untuk langsung menilai
+          <span className="text-emerald-700 font-semibold hidden sm:inline">
+            Cukup centang keaktifan, nilai otomatis terhitung lalu klik Simpan
           </span>
         </div>
 
@@ -489,18 +780,21 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
         ) : (
           <div className="divide-y divide-slate-100">
             {filteredStudents.map((murid, idx) => {
-              const rec = currentRecordsMap.get(murid.id);
-              const currentScore = rec?.skor;
+              const chk = checklistData[murid.id] || {
+                bisaMenjawabCount: 0,
+                memberikanMasukan: false,
+                mauAktif: true,
+                catatan: '',
+              };
+              const computedScore = computeStudentScore(murid.id);
 
               return (
                 <div
                   key={murid.id}
-                  className={`p-4 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
-                    currentScore ? 'bg-white hover:bg-slate-50/50' : 'bg-slate-50/30 hover:bg-slate-50'
-                  }`}
+                  className="p-4 sm:px-6 flex flex-col xl:flex-row xl:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
                 >
                   {/* Left: Student Identity */}
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="flex items-center gap-3 min-w-0 min-w-[200px] flex-1">
                     <span className="text-xs font-bold text-slate-400 w-6 text-right shrink-0">
                       {idx + 1}.
                     </span>
@@ -510,15 +804,13 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="font-extrabold text-slate-900 text-sm truncate">{murid.name}</h3>
-                        {currentScore && (
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
-                              SKOR_LABEL[currentScore]?.color || 'text-slate-700'
-                            }`}
-                          >
-                            {SKOR_LABEL[currentScore]?.desc}
-                          </span>
-                        )}
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                            SKOR_LABEL[computedScore]?.color || 'text-slate-700'
+                          }`}
+                        >
+                          Skor {computedScore} ({SKOR_LABEL[computedScore]?.desc})
+                        </span>
                       </div>
                       <p className="text-xs text-slate-400">
                         NIS: <strong className="text-slate-600 font-semibold">{murid.nis || '-'}</strong>{' '}
@@ -527,24 +819,76 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
                     </div>
                   </div>
 
-                  {/* Right: The 1 - 5 Buttons */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
-                    <div className="flex items-center gap-1.5">
+                  {/* Middle: Kotak Centang Keaktifan */}
+                  <div className="flex items-center gap-2.5 flex-wrap bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+                    {/* Kotak Centang 1: Mau Aktif */}
+                    <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border cursor-pointer transition-all bg-white hover:bg-slate-50 text-xs font-bold select-none">
+                      <input
+                        type="checkbox"
+                        checked={chk.mauAktif}
+                        onChange={() => handleToggleMauAktif(murid.id)}
+                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <span className={chk.mauAktif ? 'text-emerald-800' : 'text-slate-500'}>
+                        Mau Aktif
+                      </span>
+                    </label>
+
+                    {/* Kotak Centang 2: Memberikan Masukan */}
+                    <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border cursor-pointer transition-all bg-white hover:bg-slate-50 text-xs font-bold select-none">
+                      <input
+                        type="checkbox"
+                        checked={chk.memberikanMasukan}
+                        onChange={() => handleToggleMasukan(murid.id)}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                      />
+                      <span className={chk.memberikanMasukan ? 'text-purple-800' : 'text-slate-500'}>
+                        Memberikan Masukan
+                      </span>
+                    </label>
+
+                    {/* Kotak Centang 3: Berapa Kali Bisa Menjawab (Tally Checkbox) */}
+                    <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
+                      <span className="text-[11px] font-bold text-slate-500 mr-1">Bisa Menjawab:</span>
+                      {[1, 2, 3].map((num) => {
+                        const isChecked = chk.bisaMenjawabCount >= num;
+                        return (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => handleSetBisaMenjawab(murid.id, num)}
+                            className={`px-2 py-1 rounded-lg text-xs font-black transition-all cursor-pointer border ${
+                              isChecked
+                                ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                            title={`Klik untuk tandai menjawab ${num}x`}
+                          >
+                            ✓ {num}x
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Right: Skor Buttons 1-5 & Note */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1">
                       {[1, 2, 3, 4, 5].map((val) => {
-                        const isSelected = currentScore === val;
+                        const isSelected = computedScore === val;
                         const meta = SKOR_LABEL[val];
 
                         return (
                           <button
                             key={val}
                             type="button"
-                            onClick={() => handleSetScore(murid, val)}
-                            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl font-bold text-sm transition-all transform active:scale-95 cursor-pointer flex items-center justify-center border ${
+                            onClick={() => handleSetCustomScore(murid.id, val)}
+                            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg font-bold text-xs transition-all transform active:scale-95 cursor-pointer flex items-center justify-center border ${
                               isSelected
                                 ? meta.activeBg
                                 : `bg-white ${meta.border} text-slate-700 hover:bg-slate-50 shadow-2xs`
                             }`}
-                            title={`Beri skor ${val}: ${meta.desc}`}
+                            title={`Skor manual ${val}`}
                           >
                             <span>{val}</span>
                           </button>
@@ -552,18 +896,46 @@ export const PenilaianHarianManager: React.FC<PenilaianHarianManagerProps> = ({ 
                       })}
                     </div>
 
-                    {/* Quick inline note input */}
+                    {/* Note input */}
                     <input
                       type="text"
-                      placeholder="Catatan kecil (opsional)..."
-                      defaultValue={rec?.catatan || ''}
-                      onBlur={(e) => handleSetNote(murid, e.target.value)}
-                      className="w-full sm:w-44 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:bg-white focus:outline-hidden"
+                      placeholder="Catatan..."
+                      value={chk.catatan || ''}
+                      onChange={(e) => handleChecklistNoteChange(murid.id, e.target.value)}
+                      className="w-full sm:w-28 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:bg-white focus:outline-hidden"
                     />
+
+                    {/* Direct Row Save Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleSaveSingleChecklist(murid.id)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1 shrink-0"
+                      title="Simpan nilai keaktifan murid ini sekarang"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Simpan</span>
+                    </button>
                   </div>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Bottom Save Bar */}
+        {filteredStudents.length > 0 && (
+          <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <span className="text-xs text-slate-500 font-medium">
+              Semua centang keaktifan siap disimpan ke rekap harian kelas.
+            </span>
+            <button
+              type="button"
+              onClick={handleSaveAllChecklists}
+              className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>Simpan Penilaian Harian ({filteredStudents.length} Murid)</span>
+            </button>
           </div>
         )}
       </div>

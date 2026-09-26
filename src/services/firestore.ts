@@ -102,8 +102,21 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test connection on boot according to SKILL.md
+// Helper to check if Firebase is globally enabled by user preference
+export function isFirebaseEnabledPreference(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return localStorage.getItem('lms_firebase_enabled') !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+// Test connection on boot according to SKILL.md (only when enabled)
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (!isFirebaseEnabledPreference()) {
+    return false;
+  }
   try {
     await getDocFromServer(doc(firestore, 'lms_records', 'settings'));
     return true;
@@ -114,7 +127,13 @@ export async function testFirestoreConnection(): Promise<boolean> {
     return false;
   }
 }
-testFirestoreConnection().catch(() => {});
+
+if (isFirebaseEnabledPreference()) {
+  testFirestoreConnection().catch(() => {});
+} else {
+  // Disable Firestore network immediately to prevent any background connections or errors
+  disableNetwork(firestore).catch(() => {});
+}
 
 // Network management helpers for offline / standby testing
 export async function toggleFirestoreOffline(goOffline: boolean): Promise<void> {

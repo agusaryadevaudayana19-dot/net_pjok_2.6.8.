@@ -15,6 +15,8 @@ import {
   Image as ImageIcon,
   Camera,
   Zap,
+  Cloud,
+  CloudOff,
 } from 'lucide-react';
 import { SettingsApp, User } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
@@ -26,6 +28,7 @@ interface SchoolSettingsProps {
 }
 
 export const SchoolSettings: React.FC<SchoolSettingsProps> = ({ db, currentUser }) => {
+  const [isFirebaseActive, setIsFirebaseActive] = useState<boolean>(() => dataStorage.isFirebaseActive());
   const [settings, setSettings] = useState<SettingsApp>(() => {
     const raw = db?.settings || {};
     const base: SettingsApp = {
@@ -431,12 +434,85 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({ db, currentUser 
               setCleanConfirmInput('');
               setShowCleanModal(true);
             }}
-            className="p-3.5 bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+            className="p-3.5 bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
             title="Bersihkan data dummy/contoh (murid, materi, kuis, nilai) agar sistem bersih"
           >
             <Trash2 className="w-4 h-4 text-rose-600" />
             Hapus / Bersihkan Data Dummy
           </button>
+        </div>
+      </div>
+
+      {/* Firebase Cloud Sync Control Card */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+              isFirebaseActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {isFirebaseActive ? <Cloud className="w-5 h-5" /> : <CloudOff className="w-5 h-5" />}
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-wider">
+                Status Integrasi Cloud Firebase
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Penyimpanan cloud Firestore dan sinkronisasi real-time antar perangkat
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+              isFirebaseActive
+                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                : 'bg-slate-100 text-slate-700 border border-slate-300'
+            }`}>
+              {isFirebaseActive ? '🟢 Aktif' : '⚪ Nonaktif (Mode Lokal)'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl border text-xs leading-relaxed space-y-2 bg-slate-50 border-slate-200">
+          {isFirebaseActive ? (
+            <p className="text-slate-700">
+              Firebase <strong>Aktif</strong>. Seluruh perubahan data murid, presensi, tugas, dan nilai otomatis tersinkronisasi ke Cloud Firestore dan dapat diakses dari beberapa perangkat secara bersamaan.
+            </p>
+          ) : (
+            <p className="text-slate-700">
+              Firebase <strong>Nonaktif</strong> sesuai permintaan. Aplikasi saat ini beroperasi penuh secara mandiri (offline-first). Seluruh data disimpan dan diproses secara aman pada memori internal peramban (LocalStorage) tanpa mengirim request jaringan ke Firebase.
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end pt-2">
+          {isFirebaseActive ? (
+            <button
+              type="button"
+              id="btn-settings-disable-firebase"
+              onClick={() => {
+                dataStorage.setFirebaseEnabled(false);
+                setIsFirebaseActive(false);
+              }}
+              className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <CloudOff className="w-4 h-4 text-rose-600" />
+              Nonaktifkan Firebase
+            </button>
+          ) : (
+            <button
+              type="button"
+              id="btn-settings-enable-firebase"
+              onClick={() => {
+                dataStorage.setFirebaseEnabled(true);
+                setIsFirebaseActive(true);
+              }}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+            >
+              <Cloud className="w-4 h-4" />
+              Aktifkan Firebase
+            </button>
+          )}
         </div>
       </div>
 
@@ -452,7 +528,7 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({ db, currentUser 
                 Mulai Mengisi dari Nol (Kosongkan Database LMS)
               </h3>
               <p className="text-[11px] text-rose-600/80 font-medium">
-                Bersihkan seluruh murid & modul pembelajaran agar siap diisi dari awal secara terintegrasi dengan Firebase Firestore
+                Bersihkan seluruh murid & modul pembelajaran agar siap diisi dari awal secara bersih
               </p>
             </div>
           </div>
@@ -477,7 +553,7 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({ db, currentUser 
               <span>Data yang Akan Dikosongkan (0):</span>
             </div>
             <ul className="text-slate-600 text-[11px] space-y-1 list-disc list-inside">
-              <li>Seluruh data <strong>Murid</strong> (31 murid contoh dihapus)</li>
+              <li>Seluruh data <strong>Murid & Kelas</strong> (dibersihkan total)</li>
               <li>Seluruh <strong>Materi Pembelajaran</strong> PJOK</li>
               <li>Seluruh <strong>Tugas & Pengumpulan Tugas</strong></li>
               <li>Seluruh <strong>Bank Kuis & Jawaban Ujian</strong></li>
@@ -529,10 +605,10 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({ db, currentUser 
               <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-800 space-y-1">
                 <p className="font-bold flex items-center gap-1.5">
                   <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-                  Koneksi Cloud Firestore:
+                  Penyimpanan Database LMS:
                 </p>
                 <p className="text-[11px] text-emerald-700">
-                  Data yang dikosongkan akan langsung tersinkronisasi ke <strong>Cloud Firestore</strong> sehingga perangkat lain juga dalam kondisi siap diisi dari awal.
+                  Data yang dikosongkan akan langsung diterapkan pada database LMS sehingga sistem dalam kondisi bersih dan siap diisi dari awal.
                 </p>
               </div>
 

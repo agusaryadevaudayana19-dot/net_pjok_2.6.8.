@@ -64,6 +64,15 @@ const collectionsToClear = [
   'jawabanRefleksi',
   'materiPraktikList',
   'pengajuanIzin',
+  'penilaianSikap',
+  'penilaianTemanSejawat',
+  'dimensiTemanSejawat',
+  'bankIndikatorPenilaian',
+  'tugasPenilaianAntarTeman',
+  'penilaianHarian',
+  'pendampinganMurid',
+  'trashUsers',
+  'activityLogs',
 ];
 
 async function main() {

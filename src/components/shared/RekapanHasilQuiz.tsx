@@ -52,6 +52,74 @@ export const isAnswerCorrect = (soal: any, ans: string | undefined): boolean => 
   return String(ans).trim().toLowerCase() === String(soal.kunciJawaban || '').trim().toLowerCase();
 };
 
+/**
+ * Helper to convert student answer into clean multiple choice letter (A, B, C, D, E)
+ */
+export const getStudentChoiceLetter = (soal: any, studentAns: any): string => {
+  if (
+    studentAns === undefined ||
+    studentAns === null ||
+    studentAns === '' ||
+    studentAns === '-'
+  ) {
+    return '-';
+  }
+
+  const cleanAns = String(studentAns).trim();
+  if (!cleanAns || cleanAns === '-') return '-';
+
+  // 1. Direct single letter A-E (case-insensitive)
+  if (/^[a-eA-E]$/.test(cleanAns)) {
+    return cleanAns.toUpperCase();
+  }
+
+  // 2. Starts with letter prefix like "A.", "B)", "C -", "A "
+  const prefixMatch = cleanAns.match(/^([a-eA-E])[\.\s\)\-]/);
+  if (prefixMatch) {
+    return prefixMatch[1].toUpperCase();
+  }
+
+  // 3. Match against options in soal.pilihan
+  if (Array.isArray(soal?.pilihan) && soal.pilihan.length > 0) {
+    const stripPrefix = (str: string) =>
+      str.replace(/^[a-eA-E][\.\s\)\-]\s*/, '').trim().toLowerCase();
+    const cleanLower = cleanAns.toLowerCase();
+    const strippedClean = stripPrefix(cleanAns);
+
+    // Exact match
+    let idx = soal.pilihan.findIndex(
+      (p: string) => String(p).trim().toLowerCase() === cleanLower
+    );
+
+    // Match after stripping option prefix (e.g. "A. ")
+    if (idx === -1) {
+      idx = soal.pilihan.findIndex(
+        (p: string) => stripPrefix(String(p)) === strippedClean
+      );
+    }
+
+    if (idx !== -1 && idx < 26) {
+      return String.fromCharCode(65 + idx); // 0 -> 'A', 1 -> 'B', 2 -> 'C', 3 -> 'D', 4 -> 'E'
+    }
+  }
+
+  // 4. Benar / Salah format (A = Benar, B = Salah)
+  if (soal?.tipe === 'Benar/Salah') {
+    if (cleanAns.toLowerCase() === 'benar') return 'A';
+    if (cleanAns.toLowerCase() === 'salah') return 'B';
+  }
+
+  // Fallback: clean string
+  return cleanAns.replace(/"/g, '""');
+};
+
+/**
+ * Helper to get question answer key as option letter
+ */
+export const getQuestionKeyLetter = (soal: any): string => {
+  return getStudentChoiceLetter(soal, soal?.kunciJawaban);
+};
+
 export const RekapanHasilQuiz: React.FC<RekapanHasilQuizProps> = ({
   db,
   currentUser,
@@ -79,6 +147,7 @@ export const RekapanHasilQuiz: React.FC<RekapanHasilQuizProps> = ({
     jawaban: JawabanQuiz;
     quiz?: Quiz;
   } | null>(null);
+  const [includeKeyRowInCSV, setIncludeKeyRowInCSV] = useState<boolean>(false);
 
   const selectedKelasObj = useMemo(() => {
     return (db.kelas || []).find((k) => k.id === selectedKelasId);
@@ -370,80 +439,84 @@ export const RekapanHasilQuiz: React.FC<RekapanHasilQuizProps> = ({
     setTimeout(() => setUnlockToast(null), 4500);
   };
 
-  // Export CSV Rekapan Murid (With question-by-question details!)
-  const handleExportCSV = () => {
+  // Export CSV Rekapan Murid (Format: No, Nama, Nilai, Soal 1..N pilihan murid a,b,c,d,e)
+  const handleExportCSV = (withKeyRow: boolean = includeKeyRowInCSV) => {
     // Determine questions to append
     const quizForCols =
       selectedQuizId !== 'SEMUA'
         ? (db.quiz || []).find((q) => q.id === selectedQuizId)
         : classQuizzes[0] || (db.quiz || [])[0];
-    const soalList = quizForCols?.soal || quizForCols?.soalList || [];
 
-    const questionHeaders = soalList.flatMap((s, sIdx) => [
-      `Soal_${sIdx + 1}_Teks`,
-      `Soal_${sIdx + 1}_Kunci`,
-      `Soal_${sIdx + 1}_Pilihan_Murid`,
-      `Soal_${sIdx + 1}_Status`,
-    ]);
+    // Sort questions by question number
+    const soalList = [...(quizForCols?.soal || quizForCols?.soalList || [])].sort(
+      (a, b) => (a.nomor || 0) - (b.nomor || 0)
+    );
+
+    const questionHeaders = soalList.map((_, sIdx) => `Soal ${sIdx + 1}`);
 
     const headers = [
       'No',
-      'NIS',
-      'Nama Murid',
-      'Kelas',
-      'Paket Quiz',
-      'Waktu Pengerjaan',
-      'Jumlah Benar',
-      'Jumlah Salah',
-      'Nilai Akhir',
-      'Status Ketuntasan (KKM ' + kkmScore + ')',
+      'Nama',
+      'Nilai',
       ...questionHeaders,
     ];
 
-    const rows = filteredRows.map((r, idx) => {
-      const qCols = soalList.flatMap((s) => {
-        if (!r.hasSubmitted || !r.matchedJawaban) {
-          return ['"-"', `"${(s.kunciJawaban || '').replace(/"/g, '""')}"`, '"-"', '"-"'];
-        }
-        const jMap = r.matchedJawaban.jawaban || (r.matchedJawaban as any).jawabanMurid || {};
-        const studentAns = jMap[s.id] ?? '-';
-        const correct = isAnswerCorrect(s, studentAns);
-        const teks = (s.pertanyaan || '').replace(/"/g, '""').replace(/\n/g, ' ');
-        return [
-          `"${teks}"`,
-          `"${(s.kunciJawaban || '').replace(/"/g, '""')}"`,
-          `"${String(studentAns).replace(/"/g, '""')}"`,
-          correct ? 'BENAR (1)' : 'SALAH (0)',
-        ];
+    const studentRowsData = filteredRows.map((r, idx) => {
+      // Find the student's submission for this specific quiz
+      const matchedJawabanForQuiz =
+        (r.matchedQuiz?.id === quizForCols?.id ? r.matchedJawaban : undefined) ||
+        allJawaban.find((j) => j.muridId === r.murid.id && j.quizId === quizForCols?.id) ||
+        (selectedQuizId === 'SEMUA' ? r.matchedJawaban : undefined);
+
+      const hasSubmitted = !!matchedJawabanForQuiz;
+      const score = hasSubmitted ? (matchedJawabanForQuiz?.nilai ?? 0) : 0;
+      const jMap =
+        matchedJawabanForQuiz?.jawaban ||
+        (matchedJawabanForQuiz as any)?.jawabanMurid ||
+        {};
+
+      const qCols = soalList.map((s) => {
+        if (!hasSubmitted) return '-';
+        const studentAns = jMap[s.id];
+        const letter = getStudentChoiceLetter(s, studentAns);
+        return letter.includes(',') ? `"${letter}"` : letter;
       });
 
       return [
         idx + 1,
-        `"${r.murid.nis || '-'}"`,
-        `"${r.murid.name}"`,
-        `"Kelas ${selectedKelasObj?.nama || selectedKelasId}"`,
-        `"${r.matchedQuiz?.judul || (r.hasSubmitted ? 'Quiz PJOK' : '-')}"`,
-        `"${r.matchedJawaban?.tanggalMengerjakan || '-'}"`,
-        r.hasSubmitted ? (r.matchedJawaban?.jumlahBenar ?? '-') : '-',
-        r.hasSubmitted ? (r.matchedJawaban?.jumlahSalah ?? '-') : '-',
-        r.hasSubmitted ? r.score : '-',
-        r.hasSubmitted ? (r.isTuntas ? 'TUNTAS' : 'REMEDIAL') : 'BELUM MENGERJAKAN',
+        `"${(r.murid.name || '').replace(/"/g, '""')}"`,
+        score,
         ...qCols,
       ];
     });
 
+    const finalRows: (string | number)[][] = [...studentRowsData];
+
+    // If user opts to include Kunci Jawaban row at the top
+    if (withKeyRow && soalList.length > 0) {
+      const keyCols = soalList.map((s) => {
+        const keyLetter = getQuestionKeyLetter(s);
+        return keyLetter.includes(',') ? `"${keyLetter}"` : keyLetter;
+      });
+      finalRows.unshift([
+        'KUNCI',
+        '"KUNCI JAWABAN"',
+        100,
+        ...keyCols,
+      ]);
+    }
+
     const csvContent =
       'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+      [headers.join(','), ...finalRows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
+    const kelasClean = (selectedKelasObj?.nama || selectedKelasId || 'Kelas').replace(/\s+/g, '_');
+    const quizClean = (quizForCols?.judul || selectedQuizId).replace(/\s+/g, '_');
     link.setAttribute(
       'download',
-      `Rekap_Hasil_Quiz_Lengkap_${(selectedKelasObj?.nama || 'Kelas').replace(
-        /\s+/g,
-        '_'
-      )}_${selectedQuizId.replace(/\s+/g, '_')}.csv`
+      `Rekap_Nilai_Quiz_${kelasClean}_${quizClean}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -536,17 +609,17 @@ export const RekapanHasilQuiz: React.FC<RekapanHasilQuizProps> = ({
             </button>
             <button
               type="button"
-              onClick={activeTab === 'rekap' ? handleExportCSV : handleExportAnalisisCSV}
+              onClick={() => (activeTab === 'rekap' ? handleExportCSV(includeKeyRowInCSV) : handleExportAnalisisCSV())}
               className="px-3.5 py-2 bg-white/15 hover:bg-white/25 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 backdrop-blur-xs border border-white/20 cursor-pointer"
               title={
                 activeTab === 'rekap'
-                  ? 'Ekspor CSV lengkap rincian pilihan jawaban'
+                  ? 'Ekspor CSV format: No, Nama, Nilai, Jawaban Pilihan Murid (A, B, C, D, E) sejumlah soal'
                   : 'Ekspor CSV analisis butir soal'
               }
             >
               <Download className="w-4 h-4" />
               <span>
-                {activeTab === 'rekap' ? 'Ekspor CSV (+Detail Jawaban)' : 'Ekspor CSV Analisis Butir'}
+                {activeTab === 'rekap' ? 'Ekspor CSV (No, Nama, Nilai, Jawaban)' : 'Ekspor CSV Analisis Butir'}
               </span>
             </button>
             {onNavigateQuiz && (
@@ -718,6 +791,22 @@ export const RekapanHasilQuiz: React.FC<RekapanHasilQuizProps> = ({
                 <option value={85}>85</option>
               </select>
             </div>
+
+            {/* Opsi Tambahan Baris Kunci Jawaban di CSV */}
+            {activeTab === 'rekap' && (
+              <label
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer transition select-none"
+                title="Centang jika ingin menyisipkan 1 baris khusus KUNCI JAWABAN di baris pertama CSV"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeKeyRowInCSV}
+                  onChange={(e) => setIncludeKeyRowInCSV(e.target.checked)}
+                  className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                />
+                <span>+ Baris Kunci di CSV</span>
+              </label>
+            )}
           </div>
 
           {/* Search Box */}
