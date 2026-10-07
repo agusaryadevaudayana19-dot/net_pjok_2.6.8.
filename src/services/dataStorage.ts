@@ -441,11 +441,13 @@ class DataStorageService {
     const removedCount = beforeCount - afterCount;
 
     if (removedCount > 0 || idReplacements.size > 0) {
-      this.remapMuridIdsInDb(idReplacements);
-      this.db.users = cleanUsers;
+      const prev = { ...this.db };
+      const next = { ...this.db, users: cleanUsers };
+      this.remapMuridIdsInDb(idReplacements, next);
+      this.db = next;
       this.saveToLocalStorage(this.db);
       this.notifyLocalListeners();
-      this.syncChangesToFirestore(this.db, this.db);
+      this.syncChangesToFirestore(prev, next);
     }
     return { removedCount };
   }
@@ -461,7 +463,7 @@ class DataStorageService {
       return;
     }
     try {
-      // Pasang deteksi status jaringan browser
+      // Pasang deteksi status jaringan, pindah tab, dan fokus layar agar HP & Laptop selalu real-time otomatis
       if (typeof window !== 'undefined') {
         window.addEventListener('online', () => {
           console.info('Koneksi internet terdeteksi online. Memulai sinkronisasi otomatis Cloud Firestore...');
@@ -472,6 +474,28 @@ class DataStorageService {
         window.addEventListener('offline', () => {
           console.warn('Mode Standby / Offline aktif. Data tersimpan aman di IndexedDB & LocalStorage.');
           this.updateSyncStatus('offline');
+        });
+
+        window.addEventListener('focus', () => {
+          if (this.isFirebaseEnabled && navigator.onLine) {
+            this.forceRefreshFromFirestore().catch(() => {});
+          }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible' && this.isFirebaseEnabled && navigator.onLine) {
+            this.forceRefreshFromFirestore().catch(() => {});
+          }
+        });
+
+        window.addEventListener('storage', (e) => {
+          if (e.key === STORAGE_KEY && e.newValue) {
+            try {
+              const updated = JSON.parse(e.newValue);
+              this.db = { ...this.db, ...updated };
+              this.notifyLocalListeners();
+            } catch (err) {}
+          }
         });
       }
 
@@ -502,19 +526,15 @@ class DataStorageService {
             return;
           }
 
-          // Jangan timpa jika sedang dalam proses upload lokal kita sendiri
-          if (this.isSyncingToFirestore) {
-            this.updateSyncStatus(isFromCache && typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'synced');
-            return;
-          }
-
           this.isApplyingRemoteUpdate = true;
           try {
             const incoming: Partial<LMSDatabase> = {};
             let hasIncomingData = false;
+            const existingDocIds = new Set<string>();
 
             snapshot.forEach((docSnap) => {
               const docId = docSnap.id;
+              existingDocIds.add(docId);
               const data = docSnap.data();
 
               if (docId === 'settings' && data?.data) {
@@ -545,6 +565,7 @@ class DataStorageService {
                   incoming.presensi = Array.from(map.values());
                 } else if (docId === 'users') {
                   const serverUsers: User[] = Array.isArray(data.items) ? data.items : [];
+                  const localUsers: User[] = Array.isArray(this.db.users) ? this.db.users : [];
                   
                   // Filter out any user IDs currently in trash so deleted users are never resurrected
                   const currentTrashIds = new Set<string>();
@@ -553,7 +574,20 @@ class DataStorageService {
                     if (t.user?.id) currentTrashIds.add(t.user.id);
                   });
 
-                  let filtered = serverUsers.filter((u) => {
+                  // Jika server belum memiliki murid/guru yang sudah tersimpan di perangkat lokal saat baru konek, gabungkan otomatis
+                  const mergedUsersMap = new Map<string, User>();
+                  serverUsers.forEach((u) => {
+                    if (u && u.id) mergedUsersMap.set(u.id, u);
+                  });
+                  let localHasUnsyncedUsers = false;
+                  localUsers.forEach((u) => {
+                    if (u && u.id && !mergedUsersMap.has(u.id) && !currentTrashIds.has(u.id)) {
+                      mergedUsersMap.set(u.id, u);
+                      localHasUnsyncedUsers = true;
+                    }
+                  });
+
+                  let filtered = Array.from(mergedUsersMap.values()).filter((u) => {
                     if (currentTrashIds.has(u.id)) return false;
                     if (u.id === 'usr-guru-1' || u.id === 'usr-guru-2' || u.id === 'usr-guru-3') return false;
                     if (u.username === 'guru' || u.username === 'ratna' || u.username === 'haryono') return false;
@@ -593,14 +627,21 @@ class DataStorageService {
                   }
 
                   incoming.users = cleanUsers;
+
+                  // Jika ada data pengguna lokal yang belum ada di server, otomatis unggah ke cloud tanpa perlu klik tombol manual
+                  if (localHasUnsyncedUsers && !isFromCache && !this.isSyncingToFirestore) {
+                    setTimeout(() => {
+                      this.seedAllToFirestore().catch(() => {});
+                    }, 300);
+                  }
                 } else if (docId === 'kelas') {
                   const serverKelas: Kelas[] = Array.isArray(data.items) ? data.items : [];
                   const filtered = serverKelas.filter((k) => k.id !== 'cls-xi-1' && k.id !== 'cls-xi-2' && !/^cls-(x|xi|xii)-\d+$/.test(k.id));
-                  incoming.kelas = filtered;
+                  incoming.kelas = filtered.length > 0 ? filtered : (this.db.kelas || []);
                 } else if (docId === 'mataPelajaran') {
                   const serverMp: MataPelajaran[] = Array.isArray(data.items) ? data.items : [];
                   const filtered = serverMp.filter((m) => !/^mp-pjok-(x|xi|xii)$/.test(m.id));
-                  incoming.mataPelajaran = filtered;
+                  incoming.mataPelajaran = filtered.length > 0 ? filtered : (this.db.mataPelajaran || []);
                 } else if (['materi', 'tugas', 'quiz', 'jurnal', 'notifikasi', 'pengumuman', 'refleksi', 'penilaianPraktik'].includes(docId)) {
                   // Filter out legacy mock demo items so empty slate is respected
                   const legacyMockIds = new Set([
