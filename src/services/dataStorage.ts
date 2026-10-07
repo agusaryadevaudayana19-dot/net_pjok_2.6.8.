@@ -37,6 +37,7 @@ import {
   setDoc,
   getDocs,
   onSnapshot,
+  writeBatch,
   Unsubscribe,
 } from 'firebase/firestore';
 import { signInAnonymously } from 'firebase/auth';
@@ -494,8 +495,10 @@ class DataStorageService {
           const hasPendingWrites = snapshot.metadata.hasPendingWrites;
 
           if (snapshot.empty) {
-            console.log('Firestore masih kosong, mengunggah data inisial sistem ke Firestore...');
-            this.seedAllToFirestore();
+            if (!isFromCache) {
+              console.log('Firestore masih kosong di server, mengunggah data inisial sistem ke Firestore...');
+              this.seedAllToFirestore();
+            }
             return;
           }
 
@@ -713,6 +716,9 @@ class DataStorageService {
         'activityLogs',
       ];
 
+      const batch = writeBatch(firestore);
+      const nowIso = new Date().toISOString();
+
       for (const sec of sections) {
         const docRef = doc(firestore, 'lms_records', sec);
         const rawVal = this.db[sec] || [];
@@ -720,11 +726,13 @@ class DataStorageService {
 
         const payload =
           sec === 'settings'
-            ? { data: cleanVal, section: sec, updatedAt: new Date().toISOString() }
-            : { items: cleanVal, section: sec, updatedAt: new Date().toISOString() };
+            ? { data: cleanVal, section: sec, updatedAt: nowIso }
+            : { items: cleanVal, section: sec, updatedAt: nowIso };
 
-        await setDoc(docRef, payload);
+        batch.set(docRef, payload, { merge: true });
       }
+
+      await batch.commit();
 
       this.lastSyncTime = new Date();
       this.updateSyncStatus('synced');
@@ -779,6 +787,13 @@ class DataStorageService {
       ];
 
       const changedSections = sections.filter((sec) => prev[sec] !== next[sec]);
+      if (changedSections.length === 0) {
+        this.updateSyncStatus('synced');
+        return;
+      }
+
+      const batch = writeBatch(firestore);
+      const nowIso = new Date().toISOString();
 
       for (const sec of changedSections) {
         const docRef = doc(firestore, 'lms_records', sec);
@@ -787,11 +802,13 @@ class DataStorageService {
 
         const payload =
           sec === 'settings'
-            ? { data: cleanVal, section: sec, updatedAt: new Date().toISOString() }
-            : { items: cleanVal, section: sec, updatedAt: new Date().toISOString() };
+            ? { data: cleanVal, section: sec, updatedAt: nowIso }
+            : { items: cleanVal, section: sec, updatedAt: nowIso };
 
-        await setDoc(docRef, payload, { merge: true });
+        batch.set(docRef, payload, { merge: true });
       }
+
+      await batch.commit();
 
       this.lastSyncTime = new Date();
       this.updateSyncStatus('synced');

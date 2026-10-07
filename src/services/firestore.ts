@@ -14,23 +14,28 @@ import {
 import { auth } from './firebaseAuth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Suppress benign client offline transition notices while retaining error visibility
-setLogLevel('error');
+// Silence internal WebChannel transient offline/timeout console errors;
+// application-level permission/write errors are still reported via handleFirestoreError
+setLogLevel('silent');
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const firestore: Firestore = (() => {
   const dbId = firebaseConfig.firestoreDatabaseId || undefined;
   try {
-    // Initialize Firestore with persistent multi-tab local cache and force long-polling
-    // to prevent 10s WebChannel connection streaming timeouts in sandboxed/proxy iframe environments
+    // Initialize Firestore with persistent multi-tab local cache, auto-detected long-polling,
+    // and an 8s polling timeout (< 10s OnlineStateTracker threshold) for fast proxy/iframe handshakes
     return initializeFirestore(
       app,
       {
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager(),
         }),
-        experimentalForceLongPolling: true,
+        experimentalAutoDetectLongPolling: true,
+        experimentalLongPollingOptions: {
+          timeoutSeconds: 8,
+        },
+        ignoreUndefinedProperties: true,
       },
       dbId
     );
