@@ -867,6 +867,9 @@ export interface ForumDiskusiBalasan {
   authorAvatar?: string;
   authorKelasNama?: string;
   isi: string;
+  replyToId?: string;
+  replyToNama?: string;
+  replyToIsi?: string;
   likes?: string[]; // array of userIds
   createdAt: string; // ISO string
   updatedAt?: string;

@@ -20,6 +20,8 @@ import {
   UserCheck,
   ChevronDown,
   ChevronUp,
+  Reply,
+  CornerDownRight,
 } from 'lucide-react';
 import {
   User,
@@ -65,8 +67,18 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
   const [materiTerkaitBaru, setMateriTerkaitBaru] = useState<string>('');
   const [sematkanBaru, setSematkanBaru] = useState<boolean>(false);
 
-  // State input balasan per topik
+  // State input komentar utama per topik
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
+
+  // State untuk fitur Balas pada setiap komentar
+  const [activeCommentReply, setActiveCommentReply] = useState<{
+    topikId: string;
+    balasanId: string;
+    authorNama: string;
+    isiSingkat: string;
+  } | null>(null);
+  const [commentReplyText, setCommentReplyText] = useState<string>('');
+
   const [deleteConfirm, setDeleteConfirm] = useState<{
     type: 'topik' | 'balasan';
     topikId: string;
@@ -181,8 +193,17 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
     setExpandedTopikIds((prev) => ({ ...prev, [newTopik.id]: true }));
   };
 
-  const handleSendReply = (topikId: string) => {
-    const text = (replyTexts[topikId] || '').trim();
+  const handleSendReply = (
+    topikId: string,
+    replyTarget?: {
+      balasanId: string;
+      authorNama: string;
+      isiSingkat: string;
+    },
+    customText?: string
+  ) => {
+    const rawText = customText !== undefined ? customText : replyTexts[topikId] || '';
+    const text = rawText.trim();
     if (!text) return;
 
     const newBalasan: ForumDiskusiBalasan = {
@@ -194,6 +215,9 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
       authorAvatar: currentUser.avatar,
       authorKelasNama: currentUserKelasNama || undefined,
       isi: text,
+      replyToId: replyTarget?.balasanId,
+      replyToNama: replyTarget?.authorNama,
+      replyToIsi: replyTarget?.isiSingkat,
       likes: [],
       createdAt: new Date().toISOString(),
     };
@@ -211,7 +235,12 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
       ),
     }));
 
-    setReplyTexts((prev) => ({ ...prev, [topikId]: '' }));
+    if (replyTarget) {
+      setCommentReplyText('');
+      setActiveCommentReply(null);
+    } else {
+      setReplyTexts((prev) => ({ ...prev, [topikId]: '' }));
+    }
     setExpandedTopikIds((prev) => ({ ...prev, [topikId]: true }));
   };
 
@@ -281,7 +310,9 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
           t.id === topikId
             ? {
                 ...t,
-                balasan: (t.balasan || []).filter((b) => b.id !== balasanId),
+                balasan: (t.balasan || []).filter(
+                  (b) => b.id !== balasanId && b.replyToId !== balasanId
+                ),
               }
             : t
         ),
@@ -345,6 +376,234 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
     }
   };
 
+  const renderBalasanCard = (
+    topikId: string,
+    balasan: ForumDiskusiBalasan,
+    isChildReply: boolean = false
+  ) => {
+    const replyLikes = Array.isArray(balasan.likes) ? balasan.likes : [];
+    const replyLiked = replyLikes.includes(currentUser.id);
+    const canDeleteReply =
+      currentUser.role === 'ADMIN' ||
+      currentUser.role === 'GURU' ||
+      balasan.authorId === currentUser.id;
+
+    const isReplyingThis =
+      activeCommentReply?.topikId === topikId && activeCommentReply?.balasanId === balasan.id;
+
+    return (
+      <div
+        key={balasan.id}
+        className={`${
+          isChildReply
+            ? 'ml-6 sm:ml-10 pl-3 sm:pl-4 border-l-2 border-blue-200'
+            : ''
+        }`}
+      >
+        <div
+          className={`bg-white p-4 rounded-2xl border transition-all space-y-2 shadow-2xs ${
+            isReplyingThis
+              ? 'border-blue-400 ring-2 ring-blue-100'
+              : 'border-slate-200/90'
+          }`}
+        >
+          {/* Kutipan komentar yang dibalas */}
+          {balasan.replyToNama && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50/80 border border-blue-100 rounded-xl text-[11px] text-blue-900">
+              <CornerDownRight className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="font-bold shrink-0">Membalas @{balasan.replyToNama}:</span>
+              {balasan.replyToIsi && (
+                <span className="text-slate-600 italic truncate">
+                  &ldquo;{balasan.replyToIsi}&rdquo;
+                </span>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-slate-800 text-white font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden">
+                {balasan.authorAvatar ? (
+                  <img
+                    src={balasan.authorAvatar}
+                    alt={balasan.authorNama}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  (balasan.authorNama || 'U').charAt(0).toUpperCase()
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-extrabold text-xs text-slate-900">
+                    {balasan.authorNama}
+                  </span>
+                  {renderRoleBadge(balasan.authorRole, balasan.authorKelasNama)}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {formatWaktu(balasan.createdAt)}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Tombol Suka */}
+              <button
+                type="button"
+                onClick={() => handleToggleLikeBalasan(topikId, balasan.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border transition-colors cursor-pointer ${
+                  replyLiked
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                    : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                <ThumbsUp className={`w-3 h-3 ${replyLiked ? 'fill-blue-600' : ''}`} />
+                <span>{replyLikes.length}</span>
+              </button>
+
+              {/* Tombol Balas Komentar */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (isReplyingThis) {
+                    setActiveCommentReply(null);
+                    setCommentReplyText('');
+                  } else {
+                    setActiveCommentReply({
+                      topikId,
+                      balasanId: balasan.id,
+                      authorNama: balasan.authorNama,
+                      isiSingkat:
+                        balasan.isi.length > 70
+                          ? `${balasan.isi.slice(0, 70)}...`
+                          : balasan.isi,
+                    });
+                    setCommentReplyText('');
+                  }
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border transition-colors cursor-pointer ${
+                  isReplyingThis
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                }`}
+                title={`Balas komentar ${balasan.authorNama}`}
+              >
+                <Reply className="w-3 h-3" />
+                <span>Balas</span>
+              </button>
+
+              {canDeleteReply && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDeleteConfirm({
+                      type: 'balasan',
+                      topikId,
+                      balasanId: balasan.id,
+                      title: balasan.isi.slice(0, 40),
+                    })
+                  }
+                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                  title="Hapus Komentar"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <p className="text-xs sm:text-sm text-slate-700 whitespace-pre-line leading-relaxed pl-10">
+            {balasan.isi}
+          </p>
+
+          {/* Form Input Balas Langsung di Bawah Komentar Ini */}
+          {isReplyingThis && (
+            <div className="mt-3 pt-3 border-t border-slate-100 pl-2 sm:pl-10 space-y-2 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between text-[11px] text-blue-700 font-bold bg-blue-50/70 px-3 py-1.5 rounded-xl border border-blue-200/70">
+                <span className="flex items-center gap-1.5 truncate">
+                  <Reply className="w-3.5 h-3.5 shrink-0" />
+                  <span>Membalas komentar <strong>@{balasan.authorNama}</strong></span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveCommentReply(null);
+                    setCommentReplyText('');
+                  }}
+                  className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
+                <textarea
+                  rows={2}
+                  autoFocus
+                  value={commentReplyText}
+                  onChange={(e) => setCommentReplyText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleSendReply(
+                        topikId,
+                        {
+                          balasanId: balasan.id,
+                          authorNama: balasan.authorNama,
+                          isiSingkat:
+                            balasan.isi.length > 70
+                              ? `${balasan.isi.slice(0, 70)}...`
+                              : balasan.isi,
+                        },
+                        commentReplyText
+                      );
+                    }
+                  }}
+                  placeholder={`Tulis balasan Anda untuk @${balasan.authorNama}...`}
+                  className="flex-1 p-2.5 bg-slate-50 border border-blue-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveCommentReply(null);
+                      setCommentReplyText('');
+                    }}
+                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!commentReplyText.trim()}
+                    onClick={() =>
+                      handleSendReply(
+                        topikId,
+                        {
+                          balasanId: balasan.id,
+                          authorNama: balasan.authorNama,
+                          isiSingkat:
+                            balasan.isi.length > 70
+                              ? `${balasan.isi.slice(0, 70)}...`
+                              : balasan.isi,
+                        },
+                        commentReplyText
+                      )
+                    }
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Kirim Balasan</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 pb-10">
       {/* Header Banner */}
@@ -360,7 +619,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
             </h1>
             <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed">
               Ruang diskusi interaktif terbuka untuk <strong>seluruh Murid, Guru PJOK, dan Administrator</strong>.
-              Silakan bertanya seputar materi olahraga, berdiskusi tugas praktik, atau berbagi tips kebugaran secara real-time!
+              Silakan bertanya seputar materi olahraga, berdiskusi tugas praktik, atau membalas komentar teman &amp; guru secara langsung!
             </p>
           </div>
 
@@ -383,7 +642,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
             <div className="text-xl sm:text-2xl font-black mt-0.5">{forumList.length}</div>
           </div>
           <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3">
-            <div className="text-[11px] text-blue-200 font-semibold">Total Tanggapan / Balasan</div>
+            <div className="text-[11px] text-blue-200 font-semibold">Total Komentar &amp; Balasan</div>
             <div className="text-xl sm:text-2xl font-black mt-0.5">{totalBalasanCount}</div>
           </div>
           <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3">
@@ -481,6 +740,21 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
               currentUser.role === 'ADMIN' ||
               currentUser.role === 'GURU' ||
               topik.authorId === currentUser.id;
+
+            // Susun komentar utama dan balasan bertingkat (threaded replies)
+            const balasanIdsSet = new Set(balasanList.map((b) => b.id));
+            const rootComments = balasanList.filter(
+              (b) => !b.replyToId || !balasanIdsSet.has(b.replyToId)
+            );
+            const getNestedReplies = (parentId: string): ForumDiskusiBalasan[] => {
+              const direct = balasanList.filter((b) => b.replyToId === parentId);
+              const result: ForumDiskusiBalasan[] = [];
+              for (const child of direct) {
+                result.push(child);
+                result.push(...getNestedReplies(child.id));
+              }
+              return result;
+            };
 
             return (
               <div
@@ -626,7 +900,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
                         <span>
-                          {balasanList.length} Balasan / Diskusi
+                          {balasanList.length} Komentar &amp; Balasan
                         </span>
                         {isExpanded ? (
                           <ChevronUp className="w-3.5 h-3.5" />
@@ -659,95 +933,25 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                     {/* List of Replies */}
                     {balasanList.length === 0 ? (
                       <div className="text-center py-4 text-xs text-slate-500">
-                        Belum ada tanggapan. Jadilah yang pertama memberikan tanggapan atau jawaban!
+                        Belum ada komentar. Jadilah yang pertama memberikan tanggapan atau jawaban!
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {balasanList.map((balasan) => {
-                          const replyLikes = Array.isArray(balasan.likes) ? balasan.likes : [];
-                          const replyLiked = replyLikes.includes(currentUser.id);
-                          const canDeleteReply =
-                            currentUser.role === 'ADMIN' ||
-                            currentUser.role === 'GURU' ||
-                            balasan.authorId === currentUser.id;
-
+                        {rootComments.map((rootBalasan) => {
+                          const childReplies = getNestedReplies(rootBalasan.id);
                           return (
-                            <div
-                              key={balasan.id}
-                              className="bg-white p-4 rounded-2xl border border-slate-200/90 space-y-2 shadow-2xs"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="w-8 h-8 rounded-xl bg-slate-800 text-white font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden">
-                                    {balasan.authorAvatar ? (
-                                      <img
-                                        src={balasan.authorAvatar}
-                                        alt={balasan.authorNama}
-                                        className="w-full h-full object-cover"
-                                      />
-                                    ) : (
-                                      (balasan.authorNama || 'U').charAt(0).toUpperCase()
-                                    )}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-extrabold text-xs text-slate-900">
-                                        {balasan.authorNama}
-                                      </span>
-                                      {renderRoleBadge(balasan.authorRole, balasan.authorKelasNama)}
-                                    </div>
-                                    <div className="text-[10px] text-slate-400">
-                                      {formatWaktu(balasan.createdAt)}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleLikeBalasan(topik.id, balasan.id)}
-                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border transition-colors cursor-pointer ${
-                                      replyLiked
-                                        ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                        : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    <ThumbsUp
-                                      className={`w-3 h-3 ${replyLiked ? 'fill-blue-600' : ''}`}
-                                    />
-                                    <span>{replyLikes.length}</span>
-                                  </button>
-
-                                  {canDeleteReply && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setDeleteConfirm({
-                                          type: 'balasan',
-                                          topikId: topik.id,
-                                          balasanId: balasan.id,
-                                          title: balasan.isi.slice(0, 40),
-                                        })
-                                      }
-                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                      title="Hapus Balasan"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <p className="text-xs sm:text-sm text-slate-700 whitespace-pre-line leading-relaxed pl-10">
-                                {balasan.isi}
-                              </p>
+                            <div key={rootBalasan.id} className="space-y-2.5">
+                              {renderBalasanCard(topik.id, rootBalasan, false)}
+                              {childReplies.map((childBalasan) =>
+                                renderBalasanCard(topik.id, childBalasan, true)
+                              )}
                             </div>
                           );
                         })}
                       </div>
                     )}
 
-                    {/* Input Reply Box */}
+                    {/* Input Main Comment Box */}
                     <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-end gap-2.5">
                       <div className="flex-1">
                         <textarea
@@ -765,7 +969,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                               handleSendReply(topik.id);
                             }
                           }}
-                          placeholder={`Tulis tanggapan atau pendapat Anda sebagai ${currentUser.name}...`}
+                          placeholder={`Tulis komentar baru pada topik ini sebagai ${currentUser.name}...`}
                           className="w-full p-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                         />
                       </div>
@@ -776,7 +980,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                         className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
                       >
                         <Send className="w-4 h-4" />
-                        <span>Kirim Balasan</span>
+                        <span>Kirim Komentar</span>
                       </button>
                     </div>
                   </div>
@@ -938,7 +1142,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white w-full max-w-sm rounded-3xl border border-slate-200 shadow-2xl p-5 space-y-4">
             <h4 className="font-black text-sm text-slate-900">
-              Hapus {deleteConfirm.type === 'topik' ? 'Topik Diskusi' : 'Balasan'}?
+              Hapus {deleteConfirm.type === 'topik' ? 'Topik Diskusi' : 'Komentar / Balasan'}?
             </h4>
             <p className="text-xs text-slate-600 leading-relaxed">
               Apakah Anda yakin ingin menghapus <strong>&quot;{deleteConfirm.title}&quot;</strong>? Tindakan ini akan langsung diperbarui di seluruh perangkat.
