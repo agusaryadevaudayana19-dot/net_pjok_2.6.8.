@@ -30,6 +30,7 @@ import {
   PendampinganMuridRecord,
   IndikatorPenilaianItem,
   TugasPenilaianAntarTeman,
+  ForumDiskusiTopik,
 } from '../types';
 import {
   collection,
@@ -73,6 +74,7 @@ export interface LMSDatabase {
   tugasPenilaianAntarTeman?: TugasPenilaianAntarTeman[];
   penilaianHarian?: PenilaianHarian[];
   pendampinganMurid?: PendampinganMuridRecord[];
+  forumDiskusi?: ForumDiskusiTopik[];
   trashUsers?: TrashUserItem[];
   isCleanSlate?: boolean;
   cleanSlateTimestamp?: string;
@@ -141,6 +143,7 @@ export const INITIAL_DATABASE: LMSDatabase = {
   tugasPenilaianAntarTeman: DEFAULT_TUGAS_PENILAIAN_ANTAR_TEMAN,
   penilaianHarian: [],
   pendampinganMurid: [],
+  forumDiskusi: [],
   trashUsers: [],
   isCleanSlate: true,
   cleanSlateTimestamp: new Date().toISOString(),
@@ -753,6 +756,7 @@ class DataStorageService {
         'tugasPenilaianAntarTeman',
         'penilaianHarian',
         'pendampinganMurid',
+        'forumDiskusi',
         'trashUsers',
         'activityLogs',
       ];
@@ -823,6 +827,7 @@ class DataStorageService {
         'tugasPenilaianAntarTeman',
         'penilaianHarian',
         'pendampinganMurid',
+        'forumDiskusi',
         'trashUsers',
         'activityLogs',
       ];

@@ -33,6 +33,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   BarChart3,
+  MessageSquare,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { UserRole, User as UserType, resolveKelasId, APP_VERSION_LABEL, getTeacherAssignedClasses } from '../types';
@@ -166,6 +167,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'tugas', label: 'Tugas', icon: <ClipboardList className="w-5 h-5" /> },
           { id: 'quiz', label: 'Quiz & Asesmen', icon: <CheckCircle className="w-5 h-5" /> },
           {
+            id: 'forum-diskusi',
+            label: 'Forum Diskusi',
+            icon: <MessageSquare className="w-5 h-5 text-sky-400" />,
+            badge: (currentDb.forumDiskusi || []).length > 0 ? (currentDb.forumDiskusi || []).length : undefined,
+          },
+          {
             id: 'pendampingan-murid',
             label: 'Form Pendampingan Murid',
             icon: <UserCheck className="w-5 h-5 text-emerald-400" />,
@@ -275,6 +282,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'materi', label: 'Materi Pembelajaran', icon: <BookMarked className="w-5 h-5" /> },
           { id: 'tugas', label: 'Tugas', icon: <ClipboardList className="w-5 h-5" /> },
           { id: 'quiz', label: 'Quiz & Asesmen', icon: <CheckCircle className="w-5 h-5" /> },
+          {
+            id: 'forum-diskusi',
+            label: 'Forum Diskusi',
+            icon: <MessageSquare className="w-5 h-5 text-sky-400" />,
+            badge: (currentDb.forumDiskusi || []).length > 0 ? (currentDb.forumDiskusi || []).length : undefined,
+          },
           {
             id: 'pendampingan-murid',
             label: 'Form Pendampingan Murid',
@@ -409,6 +422,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             label: 'Quiz & Asesmen',
             icon: <CheckCircle className="w-5 h-5" />,
             badge: b && b.quiz > 0 ? b.quiz : undefined,
+          },
+          {
+            id: 'forum-diskusi',
+            label: 'Forum Diskusi',
+            icon: <MessageSquare className="w-5 h-5 text-sky-400" />,
           },
           {
             id: 'penilaian-teman-saya',

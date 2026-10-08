@@ -848,4 +848,50 @@ export interface PendampinganMuridRecord {
   updatedAt?: string;
 }
 
+// ----------------------------------------------------
+// FORUM DISKUSI PEMBELAJARAN (TERBUKA UNTUK SEMUA: MURID, GURU, ADMIN)
+// ----------------------------------------------------
+export type KategoriForumDiskusi =
+  | 'Umum & Tanya Jawab'
+  | 'Materi & Teknik Olahraga'
+  | 'Tugas & Praktik'
+  | 'Kebugaran & Kesehatan'
+  | 'Turnamen & Ekstrakurikuler';
+
+export interface ForumDiskusiBalasan {
+  id: string;
+  topikId: string;
+  authorId: string;
+  authorNama: string;
+  authorRole: UserRole;
+  authorAvatar?: string;
+  authorKelasNama?: string;
+  isi: string;
+  likes?: string[]; // array of userIds
+  createdAt: string; // ISO string
+  updatedAt?: string;
+}
+
+export interface ForumDiskusiTopik {
+  id: string;
+  judul: string;
+  isi: string;
+  kategori: KategoriForumDiskusi;
+  kelasId?: string; // 'ALL' atau ID kelas spesifik (opsional, semua tetap bisa berdiskusi)
+  kelasNama?: string;
+  materiId?: string;
+  materiJudul?: string;
+  authorId: string;
+  authorNama: string;
+  authorRole: UserRole;
+  authorAvatar?: string;
+  authorKelasNama?: string;
+  disematkan?: boolean; // Pinned topic
+  likes?: string[]; // array of userIds
+  balasan: ForumDiskusiBalasan[];
+  createdAt: string; // ISO string
+  updatedAt?: string;
+}
+
+
 

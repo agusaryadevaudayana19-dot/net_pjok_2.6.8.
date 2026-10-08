@@ -59,6 +59,7 @@ import { FormPendampinganMurid } from './components/shared/FormPendampinganMurid
 import { RekapanPendampingan } from './components/shared/RekapanPendampingan';
 import { LaporanPelaksanaanPembelajaran } from './components/shared/LaporanPelaksanaanPembelajaran';
 import { LaporanPenilaian } from './components/shared/LaporanPenilaian';
+import { ForumDiskusiView } from './components/shared/ForumDiskusiView';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
@@ -244,6 +245,14 @@ export default function App() {
           return <TugasManager db={db} currentUser={currentUser} />;
         case 'quiz':
           return <QuizManager db={db} currentUser={currentUser} />;
+        case 'forum-diskusi':
+          return (
+            <ForumDiskusiView
+              db={db}
+              currentUser={currentUser}
+              initialTopikId={activeSubParam}
+            />
+          );
         case 'praktik':
           return <PraktikAssessment db={db} currentUser={currentUser} />;
         case 'rekap-praktik':
@@ -413,6 +422,14 @@ export default function App() {
           return <PenilaianTemanSejawatManager db={db} currentUser={currentUser} initialTab="rekap" />;
         case 'refleksi':
           return <GuruRefleksi db={db} currentUser={currentUser} />;
+        case 'forum-diskusi':
+          return (
+            <ForumDiskusiView
+              db={db}
+              currentUser={currentUser}
+              initialTopikId={activeSubParam}
+            />
+          );
         case 'pengumuman':
           return <PengumumanManager db={db} currentUser={currentUser} />;
         case 'presensi':
@@ -549,6 +566,15 @@ export default function App() {
         case 'refleksi-saya':
         case 'refleksi':
           return <MuridRefleksi db={db} currentUser={currentUser} />;
+        case 'forum-diskusi':
+        case 'forum-diskusi-saya':
+          return (
+            <ForumDiskusiView
+              db={db}
+              currentUser={currentUser}
+              initialTopikId={activeSubParam}
+            />
+          );
         case 'nilai-saya':
         case 'nilai':
           return <MuridNilai db={db} currentUser={currentUser} />;
