@@ -26,6 +26,7 @@ import { InAppMediaModal, parseMediaUrl } from './InAppMediaModal';
 import { UploadDataModal } from './UploadDataModal';
 import { FormattedMateriText } from './FormattedMateriText';
 import { AutoNumberedTextArea } from './AutoNumberedTextArea';
+import { EmojiPickerButton } from './EmojiPickerButton';
 import { processImageUpload } from '../../utils/imageUploadHelper';
 import {
   getMateriCategoryList,
@@ -890,7 +891,16 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
             <form onSubmit={handleSave} className="flex-1 overflow-y-auto pr-1 space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Judul Materi PJOK *</label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block font-bold text-slate-700">Judul Materi PJOK *</label>
+                    <EmojiPickerButton
+                      label="Emoticon"
+                      align="right"
+                      onSelectEmoji={(emoji) =>
+                        setForm((prev) => ({ ...prev, judul: `${prev.judul || ''}${emoji}` }))
+                      }
+                    />
+                  </div>
                   <input
                     type="text"
                     required
@@ -901,9 +911,25 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Topik / Sub Materi (Diisi Manual) *
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block font-bold text-slate-700">
+                      Topik / Sub Materi (Diisi Manual) *
+                    </label>
+                    <EmojiPickerButton
+                      label="Emoticon"
+                      align="right"
+                      onSelectEmoji={(emoji) =>
+                        setForm((prev) => {
+                          const currentVal = prev.topikSubMateri ?? prev.subJudul ?? '';
+                          return {
+                            ...prev,
+                            topikSubMateri: `${currentVal}${emoji}`,
+                            subJudul: `${currentVal}${emoji}`,
+                          };
+                        })
+                      }
+                    />
+                  </div>
                   <input
                     type="text"
                     placeholder="Misal: Teknik Passing Bawah & Passing Atas"

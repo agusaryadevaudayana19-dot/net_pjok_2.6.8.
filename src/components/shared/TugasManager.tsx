@@ -29,6 +29,7 @@ import { Tugas, PengumpulanTugas, User, SoalTugas, NotifikasiItem, getTeacherAss
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { InAppMediaModal } from './InAppMediaModal';
 import { UploadDataModal } from './UploadDataModal';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 interface TugasManagerProps {
   db: LMSDatabase;
@@ -1063,9 +1064,18 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Umpan Balik & Catatan Guru untuk Murid
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block font-bold text-slate-700">
+                    Umpan Balik & Catatan Guru untuk Murid
+                  </label>
+                  <EmojiPickerButton
+                    label="Tambah Emoticon"
+                    align="right"
+                    onSelectEmoji={(emoji) =>
+                      setReviewCatatan((prev) => `${prev}${emoji}`)
+                    }
+                  />
+                </div>
                 <textarea
                   rows={3}
                   placeholder="Misal: Posisi lutut dan siku sudah tepat, perhatikan perkenaan bola pada lengan bawah..."
@@ -1120,7 +1130,16 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
 
             <form onSubmit={handleSave} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Judul Tugas PJOK *</label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block font-bold text-slate-700">Judul Tugas PJOK *</label>
+                  <EmojiPickerButton
+                    label="Emoticon"
+                    align="right"
+                    onSelectEmoji={(emoji) =>
+                      setForm((prev) => ({ ...prev, judul: `${prev.judul || ''}${emoji}` }))
+                    }
+                  />
+                </div>
                 <input
                   type="text"
                   required
@@ -1339,7 +1358,16 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Instruksi Lengkap Tugas *</label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block font-bold text-slate-700">Instruksi Lengkap Tugas *</label>
+                  <EmojiPickerButton
+                    label="Tambah Emoticon"
+                    align="right"
+                    onSelectEmoji={(emoji) =>
+                      setForm((prev) => ({ ...prev, instruksi: `${prev.instruksi || ''}${emoji}` }))
+                    }
+                  />
+                </div>
                 <textarea
                   rows={3}
                   required

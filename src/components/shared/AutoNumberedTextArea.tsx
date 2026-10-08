@@ -1,5 +1,6 @@
 import React from 'react';
 import { handleAutoNumberKeyDown, insertAutoNumberToken } from '../../utils/materiAutoNumber';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 interface AutoNumberedTextAreaProps {
   value: string;
@@ -47,6 +48,11 @@ export const AutoNumberedTextArea: React.FC<AutoNumberedTextAreaProps> = ({
           ⌨️ Tekan <kbd className="px-1 py-0.5 bg-slate-100 border border-slate-300 rounded-md font-mono text-[9px] text-slate-700">Enter</kbd> untuk otomatis lanjut nomor (seperti MS Word)
         </span>
         <div className="flex items-center gap-1 flex-wrap">
+          <EmojiPickerButton
+            label="Emoticon"
+            align="right"
+            onSelectEmoji={(emoji) => onChange(`${value || ''}${emoji}`)}
+          />
           <button
             type="button"
             onClick={() => onChange(insertAutoNumberToken(value, 'number'))}

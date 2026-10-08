@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { LMSDatabase, dataStorage } from '../../services/dataStorage';
 import { User, Pengumuman, KategoriPengumuman, getTeacherAssignedClasses } from '../../types';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 interface PengumumanManagerProps {
   db: LMSDatabase;
@@ -459,9 +460,18 @@ export const PengumumanManager: React.FC<PengumumanManagerProps> = ({ db, curren
 
             <form onSubmit={handleSave} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Judul Pengumuman *
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block font-bold text-slate-700 uppercase tracking-wider">
+                    Judul Pengumuman *
+                  </label>
+                  <EmojiPickerButton
+                    label="Emoticon Judul"
+                    align="right"
+                    onSelectEmoji={(emoji) =>
+                      setFormData((prev) => ({ ...prev, judul: `${prev.judul || ''}${emoji}` }))
+                    }
+                  />
+                </div>
                 <input
                   type="text"
                   required
@@ -614,9 +624,18 @@ export const PengumumanManager: React.FC<PengumumanManagerProps> = ({ db, curren
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Isi Pesan Pengumuman *
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block font-bold text-slate-700 uppercase tracking-wider">
+                    Isi Pesan Pengumuman *
+                  </label>
+                  <EmojiPickerButton
+                    label="Tambah Emoticon"
+                    align="right"
+                    onSelectEmoji={(emoji) =>
+                      setFormData((prev) => ({ ...prev, isi: `${prev.isi || ''}${emoji}` }))
+                    }
+                  />
+                </div>
                 <textarea
                   required
                   rows={4}

@@ -25,6 +25,7 @@ import {
   SoalRefleksi,
   User,
 } from '../../types';
+import { EmojiPickerButton } from '../shared/EmojiPickerButton';
 
 interface MuridRefleksiProps {
   db: LMSDatabase;
@@ -469,7 +470,19 @@ export const MuridRefleksi: React.FC<MuridRefleksiProps> = ({ db, currentUser })
 
                       {/* Text Question */}
                       {soal.tipe === 'teks' && (
-                        <div className="space-y-1.5 pt-1">
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center justify-end">
+                            <EmojiPickerButton
+                              label="Tambah Emoticon"
+                              align="right"
+                              onSelectEmoji={(emoji) =>
+                                setAnswers((prev) => ({
+                                  ...prev,
+                                  [soal.id]: `${(prev[soal.id] as string) || ''}${emoji}`,
+                                }))
+                              }
+                            />
+                          </div>
                           <textarea
                             rows={3}
                             value={(answers[soal.id] as string) || ''}

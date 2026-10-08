@@ -31,6 +31,7 @@ import {
   resolveKelasId,
 } from '../../types';
 import { LMSDatabase, dataStorage } from '../../services/dataStorage';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 interface ForumDiskusiViewProps {
   db: LMSDatabase;
@@ -168,14 +169,19 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
       forumDiskusi: [newTopik, ...(prev.forumDiskusi || [])],
       notifikasi: [
         {
-          id: `notif-forum-${Date.now()}`,
-          judul: `Diskusi Baru: ${newTopik.judul}`,
+          id: `notif-forum-topik-${Date.now()}`,
+          judul: `Topik Diskusi Baru: ${newTopik.judul}`,
           pesan: `${currentUser.name} (${
             currentUser.role === 'MURID' ? `Murid ${currentUserKelasNama}` : currentUser.role
-          }) memulai topik diskusi baru di Forum Pembelajaran.`,
-          tipe: 'pengumuman',
+          }) memulai topik diskusi baru: "${
+            newTopik.isi.length > 80 ? `${newTopik.isi.slice(0, 80)}...` : newTopik.isi
+          }"`,
+          tipe: 'forum-diskusi',
+          targetRole: 'ALL',
+          targetKelasId: kelasTargetBaru || 'ALL',
           waktu: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           dibaca: false,
+          dibacaOleh: [currentUser.id],
           targetMenu: 'forum-diskusi',
           targetId: newTopik.id,
         },
@@ -222,6 +228,27 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
       createdAt: new Date().toISOString(),
     };
 
+    const targetTopik = (db.forumDiskusi || []).find((t) => t.id === topikId);
+    const topikJudul = targetTopik?.judul || 'Forum Diskusi';
+    const roleLabel =
+      currentUser.role === 'MURID'
+        ? `Murid${currentUserKelasNama ? ` ${currentUserKelasNama}` : ''}`
+        : currentUser.role === 'GURU'
+        ? 'Guru PJOK'
+        : 'Admin';
+
+    const notifJudul = replyTarget
+      ? `Balasan Komentar di Forum: ${topikJudul}`
+      : `Komentar Baru di Forum: ${topikJudul}`;
+
+    const notifPesan = replyTarget
+      ? `${currentUser.name} (${roleLabel}) membalas komentar @${replyTarget.authorNama}: "${
+          text.length > 80 ? `${text.slice(0, 80)}...` : text
+        }"`
+      : `${currentUser.name} (${roleLabel}) berkomentar di diskusi "${topikJudul}": "${
+          text.length > 80 ? `${text.slice(0, 80)}...` : text
+        }"`;
+
     dataStorage.updateDatabase((prev) => ({
       ...prev,
       forumDiskusi: (prev.forumDiskusi || []).map((t) =>
@@ -233,6 +260,22 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
             }
           : t
       ),
+      notifikasi: [
+        {
+          id: `notif-forum-reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          judul: notifJudul,
+          pesan: notifPesan,
+          tipe: 'forum-diskusi',
+          targetRole: 'ALL',
+          targetKelasId: 'ALL',
+          waktu: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          dibaca: false,
+          dibacaOleh: [currentUser.id],
+          targetMenu: 'forum-diskusi',
+          targetId: topikId,
+        },
+        ...(prev.notifikasi || []),
+      ],
     }));
 
     if (replyTarget) {
@@ -536,7 +579,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                 </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
+              <div className="flex flex-col gap-2">
                 <textarea
                   rows={2}
                   autoFocus
@@ -560,41 +603,49 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                     }
                   }}
                   placeholder={`Tulis balasan Anda untuk @${balasan.authorNama}...`}
-                  className="flex-1 p-2.5 bg-slate-50 border border-blue-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full p-2.5 bg-slate-50 border border-blue-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveCommentReply(null);
-                      setCommentReplyText('');
-                    }}
-                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!commentReplyText.trim()}
-                    onClick={() =>
-                      handleSendReply(
-                        topikId,
-                        {
-                          balasanId: balasan.id,
-                          authorNama: balasan.authorNama,
-                          isiSingkat:
-                            balasan.isi.length > 70
-                              ? `${balasan.isi.slice(0, 70)}...`
-                              : balasan.isi,
-                        },
-                        commentReplyText
-                      )
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <EmojiPickerButton
+                    label="Emoticon"
+                    onSelectEmoji={(emoji) =>
+                      setCommentReplyText((prev) => `${prev}${emoji}`)
                     }
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Kirim Balasan</span>
-                  </button>
+                  />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveCommentReply(null);
+                        setCommentReplyText('');
+                      }}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!commentReplyText.trim()}
+                      onClick={() =>
+                        handleSendReply(
+                          topikId,
+                          {
+                            balasanId: balasan.id,
+                            authorNama: balasan.authorNama,
+                            isiSingkat:
+                              balasan.isi.length > 70
+                                ? `${balasan.isi.slice(0, 70)}...`
+                                : balasan.isi,
+                          },
+                          commentReplyText
+                        )
+                      }
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Kirim Balasan</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -952,36 +1003,45 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                     )}
 
                     {/* Input Main Comment Box */}
-                    <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-end gap-2.5">
-                      <div className="flex-1">
-                        <textarea
-                          rows={2}
-                          value={replyTexts[topik.id] || ''}
-                          onChange={(e) =>
+                    <div className="pt-2 space-y-2">
+                      <textarea
+                        rows={2}
+                        value={replyTexts[topik.id] || ''}
+                        onChange={(e) =>
+                          setReplyTexts((prev) => ({
+                            ...prev,
+                            [topik.id]: e.target.value,
+                          }))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                            e.preventDefault();
+                            handleSendReply(topik.id);
+                          }
+                        }}
+                        placeholder={`Tulis komentar baru pada topik ini sebagai ${currentUser.name}...`}
+                        className="w-full p-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      />
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <EmojiPickerButton
+                          label="Tambah Emoticon"
+                          onSelectEmoji={(emoji) =>
                             setReplyTexts((prev) => ({
                               ...prev,
-                              [topik.id]: e.target.value,
+                              [topik.id]: `${prev[topik.id] || ''}${emoji}`,
                             }))
                           }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                              e.preventDefault();
-                              handleSendReply(topik.id);
-                            }
-                          }}
-                          placeholder={`Tulis komentar baru pada topik ini sebagai ${currentUser.name}...`}
-                          className="w-full p-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                         />
+                        <button
+                          type="button"
+                          onClick={() => handleSendReply(topik.id)}
+                          disabled={!(replyTexts[topik.id] || '').trim()}
+                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>Kirim Komentar</span>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleSendReply(topik.id)}
-                        disabled={!(replyTexts[topik.id] || '').trim()}
-                        className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
-                      >
-                        <Send className="w-4 h-4" />
-                        <span>Kirim Komentar</span>
-                      </button>
                     </div>
                   </div>
                 )}
@@ -1018,9 +1078,16 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
 
             <form onSubmit={handleCreateTopik} className="p-5 sm:p-6 space-y-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-extrabold text-slate-700">
-                  Judul Topik / Pertanyaan Diskusi <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-extrabold text-slate-700">
+                    Judul Topik / Pertanyaan Diskusi <span className="text-rose-500">*</span>
+                  </label>
+                  <EmojiPickerButton
+                    label="Emoticon Judul"
+                    align="right"
+                    onSelectEmoji={(emoji) => setJudulBaru((prev) => `${prev}${emoji}`)}
+                  />
+                </div>
                 <input
                   type="text"
                   required
@@ -1089,9 +1156,16 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
               )}
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-extrabold text-slate-700">
-                  Isi Pembahasan / Pertanyaan <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-extrabold text-slate-700">
+                    Isi Pembahasan / Pertanyaan <span className="text-rose-500">*</span>
+                  </label>
+                  <EmojiPickerButton
+                    label="Tambah Emoticon"
+                    align="right"
+                    onSelectEmoji={(emoji) => setIsiBaru((prev) => `${prev}${emoji}`)}
+                  />
+                </div>
                 <textarea
                   rows={4}
                   required

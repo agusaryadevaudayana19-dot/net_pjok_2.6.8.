@@ -38,7 +38,11 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { UserRole, User as UserType, resolveKelasId, APP_VERSION_LABEL, getTeacherAssignedClasses } from '../types';
 import { dataStorage } from '../services/dataStorage';
-import { calculateStudentFeatureBadges, markSidebarMenuAsReadForUser } from '../utils/studentNotificationHelper';
+import {
+  calculateStudentFeatureBadges,
+  markSidebarMenuAsReadForUser,
+  isSidebarMenuRead,
+} from '../utils/studentNotificationHelper';
 
 interface SidebarProps {
   role: UserRole;
@@ -137,6 +141,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return hasStudentMsg && !isHandled;
     }).length;
 
+    const forumTopicsAdmin = currentDb.forumDiskusi || [];
+    const totalForumCommentsAdmin = forumTopicsAdmin.reduce((acc, t) => acc + (t.balasan?.length || 0), 0);
+    const totalForumActivityAdmin = forumTopicsAdmin.length + totalForumCommentsAdmin;
+    const latestReplyIdAdmin =
+      forumTopicsAdmin
+        .flatMap((t) => t.balasan || [])
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.id ||
+      'none';
+    const forumCtxAdmin = `forum_${forumTopicsAdmin.length}_${totalForumCommentsAdmin}_${latestReplyIdAdmin}`;
+    const unreadForumAdmin =
+      totalForumActivityAdmin > 0 &&
+      currentUser?.id &&
+      !isSidebarMenuRead(currentUser.id, 'forum-diskusi', forumCtxAdmin)
+        ? totalForumActivityAdmin
+        : 0;
+
     return [
       {
         title: 'UTAMA',
@@ -170,7 +190,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'forum-diskusi',
             label: 'Forum Diskusi',
             icon: <MessageSquare className="w-5 h-5 text-sky-400" />,
-            badge: (currentDb.forumDiskusi || []).length > 0 ? (currentDb.forumDiskusi || []).length : undefined,
+            badge: unreadForumAdmin > 0 ? unreadForumAdmin : undefined,
           },
           {
             id: 'pendampingan-murid',
@@ -264,6 +284,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return true;
     }).length;
 
+    const forumTopicsGuru = currentDb.forumDiskusi || [];
+    const totalForumCommentsGuru = forumTopicsGuru.reduce((acc, t) => acc + (t.balasan?.length || 0), 0);
+    const totalForumActivityGuru = forumTopicsGuru.length + totalForumCommentsGuru;
+    const latestReplyIdGuru =
+      forumTopicsGuru
+        .flatMap((t) => t.balasan || [])
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.id ||
+      'none';
+    const forumCtxGuru = `forum_${forumTopicsGuru.length}_${totalForumCommentsGuru}_${latestReplyIdGuru}`;
+    const unreadForumGuru =
+      totalForumActivityGuru > 0 &&
+      currentUser?.id &&
+      !isSidebarMenuRead(currentUser.id, 'forum-diskusi', forumCtxGuru)
+        ? totalForumActivityGuru
+        : 0;
+
     return [
       {
         title: 'UTAMA',
@@ -286,7 +322,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'forum-diskusi',
             label: 'Forum Diskusi',
             icon: <MessageSquare className="w-5 h-5 text-sky-400" />,
-            badge: (currentDb.forumDiskusi || []).length > 0 ? (currentDb.forumDiskusi || []).length : undefined,
+            badge: unreadForumGuru > 0 ? unreadForumGuru : undefined,
           },
           {
             id: 'pendampingan-murid',
@@ -366,10 +402,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('lms_sidebar_badge_change', handleBadgeChange);
   }, []);
 
-  // Ketika murid sedang membuka menu aktif, langsung tandai menu tersebut sudah dibaca di sidebar
+  // Ketika pengguna sedang membuka menu aktif, langsung tandai menu tersebut sudah dibaca di sidebar
   // "PADA SIDEBAR SETELAH DI BACA HILANGKAN ANGKA ATAU TANDA MERAH ITU"
   useEffect(() => {
-    if (role === 'MURID' && currentUser?.id && activeMenu) {
+    if (currentUser?.id && activeMenu) {
       markSidebarMenuAsReadForUser(currentUser.id, activeMenu);
     }
   }, [role, currentUser?.id, activeMenu]);
@@ -427,6 +463,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'forum-diskusi',
             label: 'Forum Diskusi',
             icon: <MessageSquare className="w-5 h-5 text-sky-400" />,
+            badge: b && b.forumDiskusi > 0 ? b.forumDiskusi : undefined,
           },
           {
             id: 'penilaian-teman-saya',
@@ -514,8 +551,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setExpandedSection((prev) => (prev === title ? null : title));
   };
 
-  // Notifikasi badge pada sidebar ditampilkan untuk Admin dan Murid (akan hilang setelah dibaca)
-  const showSidebarBadges = role === 'ADMIN' || role === 'MURID';
+  // Notifikasi badge pada sidebar ditampilkan untuk Admin, Guru, dan Murid (akan hilang setelah dibaca)
+  const showSidebarBadges = role === 'ADMIN' || role === 'GURU' || role === 'MURID';
 
   const sidebarContent = (
     <div className="h-full flex flex-col bg-slate-900 text-slate-300 select-none">
@@ -613,7 +650,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         key={item.id}
                         onClick={() => {
-                          if (role === 'MURID' && currentUser?.id) {
+                          if (currentUser?.id) {
                             markSidebarMenuAsReadForUser(currentUser.id, item.id);
                           }
                           onSelectMenu(item.id);
@@ -724,7 +761,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <button
                           key={item.id}
                           onClick={() => {
-                            if (role === 'MURID' && currentUser?.id) {
+                            if (currentUser?.id) {
                               markSidebarMenuAsReadForUser(currentUser.id, item.id);
                             }
                             onSelectMenu(item.id);

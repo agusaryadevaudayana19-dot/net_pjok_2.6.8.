@@ -26,12 +26,27 @@ import {
   ClipboardList,
   CheckCircle,
   CalendarCheck,
+  MessageSquare,
+  Volume2,
+  VolumeX,
+  BellRing,
 } from 'lucide-react';
 import { User, UserRole, PengaturanSekolah, resolveKelasId, APP_VERSION_LABEL, NotifikasiItem } from '../types';
 import { dataStorage, LMSDatabase, FirestoreSyncStatus } from '../services/dataStorage';
 import { getStudentUrgentDeadlines } from '../utils/deadlineNotification';
 import { getStudentPendampinganStatus, getLatestTeacherUpdates, markSidebarMenuAsReadForUser, isSidebarMenuRead } from '../utils/studentNotificationHelper';
 import { PWAInstallButton } from './pwa/PWAInstallButton';
+import {
+  isNotificationSoundEnabled,
+  setNotificationSoundEnabled,
+  playNotificationSound,
+  requestDeviceNotificationPermission,
+  getDeviceNotificationPermission,
+  triggerDeviceNotification,
+  updatePWAAppBadge,
+  getSeenPushNotifIds,
+  saveSeenPushNotifIds,
+} from '../utils/pwaNotificationHelper';
 
 interface NavbarProps {
   currentUser: User;
@@ -100,10 +115,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   // State untuk menyimpan ID notifikasi pendampingan otomatis yang ditutup/dibaca dalam sesi berjalan
   const [dismissedAutoNotifIds, setDismissedAutoNotifIds] = useState<Set<string>>(new Set());
 
+  // Helper per-user read status so reading a notification on one account doesn't hide it for other users
+  const isNotifReadByUser = (n: NotifikasiItem) => {
+    if (Array.isArray(n.dibacaOleh)) {
+      return n.dibacaOleh.includes(currentUser.id);
+    }
+    return Boolean(n.dibaca);
+  };
+
   // Filter notifications relevant to current user:
   // "JANGAN HILANGKAN NOTIFIKASI PADA FITUR NOTIFIKASI AGAR MURID SELALU INGAT ADA NOTIFIKASI"
   const userNotifikasi = useMemo(() => {
-    const list = db.notifikasi || [];
+    const list = (db.notifikasi || []).map((n) => ({
+      ...n,
+      dibaca: isNotifReadByUser(n),
+    }));
+
     if (currentUser.role === 'MURID') {
       const myKelasId = currentUser.kelasId || '';
       const muridList = list.filter((n) => {
@@ -125,13 +152,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (currentUser.role === 'GURU') {
       const guruKelasIds = currentUser.kelasIds || (currentUser.kelasDiampuIds || []);
 
-      // 1. Notifikasi reguler guru
+      // 1. Notifikasi reguler guru (termasuk Forum Diskusi)
       const normalList = list.filter((n) => {
         if (n.dibaca) return false;
         // Jangan tampilkan notifikasi pribadi yang ditargetkan untuk murid spesifik
         if (n.targetMuridId) return false;
         if (n.targetRole && n.targetRole !== 'GURU' && n.targetRole !== 'ALL' && n.targetRole !== 'ADMIN') {
           return false;
+        }
+        if (n.tipe === 'forum-diskusi' || n.targetMenu === 'forum-diskusi') {
+          return true;
         }
         // Notifikasi pendampingan murid / konsultasi harus dapat diakses oleh Guru PJOK
         const isPendampingan = n.tipe === 'pendampingan' || n.targetMenu === 'pendampingan-murid';
@@ -231,6 +261,80 @@ export const Navbar: React.FC<NavbarProps> = ({
     (urgentDeadlines.length > 0 ? 1 : 0) +
     (studentPendampingan.needsFollowUp && !isAlpaSidebarRead ? 1 : 0);
 
+  // State untuk Suara Notifikasi, Izin Notifikasi HP/Laptop, dan Banner Pop-up Notifikasi Masuk
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => isNotificationSoundEnabled());
+  const [deviceNotifPerm, setDeviceNotifPerm] = useState<NotificationPermission | 'unsupported'>(() =>
+    getDeviceNotificationPermission()
+  );
+  const [incomingToastNotif, setIncomingToastNotif] = useState<NotifikasiItem | null>(null);
+  const isInitialNotifLoadRef = useRef<boolean>(true);
+  const lastTrackedUserIdRef = useRef<string>(currentUser.id);
+
+  // Update lencana angka pada ikon aplikasi PWA yang terinstal di HP / Laptop
+  useEffect(() => {
+    updatePWAAppBadge(unreadCount);
+  }, [unreadCount]);
+
+  // Deteksi otomatis notifikasi baru yang masuk secara real-time (bunyikan suara + munculkan pop-up & notifikasi sistem HP/Laptop)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    if (lastTrackedUserIdRef.current !== currentUser.id) {
+      lastTrackedUserIdRef.current = currentUser.id;
+      isInitialNotifLoadRef.current = true;
+    }
+
+    const seenSet = getSeenPushNotifIds(currentUser.id);
+    const unreadItems = userNotifikasi.filter((n) => !n.dibaca);
+
+    // Pada saat aplikasi pertama kali dibuka, catat ID yang sudah ada agar tidak membunyikan semua notifikasi lama sekaligus
+    if (isInitialNotifLoadRef.current) {
+      isInitialNotifLoadRef.current = false;
+      if (seenSet.size === 0 && unreadItems.length > 0) {
+        unreadItems.forEach((n) => seenSet.add(n.id));
+        saveSeenPushNotifIds(currentUser.id, seenSet);
+        return;
+      }
+    }
+
+    const brandNewItems = unreadItems.filter((n) => !seenSet.has(n.id));
+    if (brandNewItems.length > 0) {
+      brandNewItems.forEach((n) => seenSet.add(n.id));
+      saveSeenPushNotifIds(currentUser.id, seenSet);
+
+      const newest = brandNewItems[0];
+      setIncomingToastNotif(newest);
+      triggerDeviceNotification(newest);
+
+      const timer = setTimeout(() => {
+        setIncomingToastNotif((cur) => (cur?.id === newest.id ? null : cur));
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [userNotifikasi, currentUser?.id]);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setNotificationSoundEnabled(next);
+    if (next) {
+      playNotificationSound();
+    }
+  };
+
+  const handleEnableDeviceNotif = async () => {
+    const perm = await requestDeviceNotificationPermission();
+    setDeviceNotifPerm(perm);
+    if (perm === 'granted') {
+      triggerDeviceNotification({
+        id: `test-notif-${Date.now()}`,
+        judul: 'Notifikasi HP / Laptop Aktif 🔔',
+        pesan: 'Anda akan menerima pemberitahuan beserta suara setiap ada pengumuman, tugas, atau komentar forum diskusi baru!',
+        tipe: 'forum-diskusi',
+      });
+    }
+  };
+
   useEffect(() => {
     return dataStorage.onSyncStatusChange((status, lastSync) => {
       setSyncStatus(status);
@@ -267,12 +371,21 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (id.startsWith('auto-pnd-')) {
       setDismissedAutoNotifIds((prev) => new Set([...prev, id]));
     }
-    // Update status dibaca = true, JANGAN HAPUS NOTIFIKASI AGAR SELALU BISA DIPANTAU
+    // Update status dibaca per pengguna (dibacaOleh) agar pengguna lain (Guru/Admin/Murid lain) tetap menerima notifikasi
     dataStorage.updateDatabase((prev) => ({
       ...prev,
-      notifikasi: (prev.notifikasi || []).map((n) =>
-        n.id === id ? { ...n, dibaca: true } : n
-      ),
+      notifikasi: (prev.notifikasi || []).map((n) => {
+        if (n.id !== id) return n;
+        const currentReaders = Array.isArray(n.dibacaOleh) ? n.dibacaOleh : [];
+        const updatedReaders = currentReaders.includes(currentUser.id)
+          ? currentReaders
+          : [...currentReaders, currentUser.id];
+        return {
+          ...n,
+          dibaca: n.targetMuridId ? true : n.dibaca,
+          dibacaOleh: updatedReaders,
+        };
+      }),
     }));
   };
 
@@ -281,13 +394,22 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (autoIds.length > 0) {
       setDismissedAutoNotifIds((prev) => new Set([...prev, ...autoIds]));
     }
-    // Tandai semua notifikasi user ini sebagai sudah dibaca (dibaca: true), JANGAN HAPUS NOTIFIKASI
+    // Tandai semua notifikasi user ini sebagai sudah dibaca oleh currentUser.id
     const userNotifIds = new Set(userNotifikasi.map((n) => n.id));
     dataStorage.updateDatabase((prev) => ({
       ...prev,
-      notifikasi: (prev.notifikasi || []).map((n) =>
-        userNotifIds.has(n.id) ? { ...n, dibaca: true } : n
-      ),
+      notifikasi: (prev.notifikasi || []).map((n) => {
+        if (!userNotifIds.has(n.id)) return n;
+        const currentReaders = Array.isArray(n.dibacaOleh) ? n.dibacaOleh : [];
+        const updatedReaders = currentReaders.includes(currentUser.id)
+          ? currentReaders
+          : [...currentReaders, currentUser.id];
+        return {
+          ...n,
+          dibaca: n.targetMuridId ? true : n.dibaca,
+          dibacaOleh: updatedReaders,
+        };
+      }),
     }));
   };
 
@@ -310,6 +432,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     const targetId = item.targetId;
 
     // 1. Explicit Tipe Routing
+    if (tipe === 'forum-diskusi' || item.targetMenu === 'forum-diskusi') {
+      onSelectMenuItem('forum-diskusi', targetId);
+      return;
+    }
+
     if (tipe === 'pengumuman' || tipe === 'informasi') {
       if (targetId && currentUser.role === 'MURID') {
         dataStorage.updateDatabase((prev) => ({
@@ -1032,7 +1159,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
+                    {/* Tombol Suara Notifikasi (On/Off) */}
+                    <button
+                      type="button"
+                      onClick={handleToggleSound}
+                      className={`p-1 rounded-lg border transition-colors cursor-pointer flex items-center gap-1 text-[10px] font-bold ${
+                        soundEnabled
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                          : 'bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200'
+                      }`}
+                      title={
+                        soundEnabled
+                          ? 'Suara Notifikasi Aktif (Klik untuk membisukan)'
+                          : 'Suara Notifikasi Mati (Klik untuk mengaktifkan suara)'
+                      }
+                    >
+                      {soundEnabled ? (
+                        <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                      <span className="hidden sm:inline">{soundEnabled ? 'Suara On' : 'Bisu'}</span>
+                    </button>
+
                     {userNotifikasi.some((n) => !n.dibaca) && (
                       <button
                         type="button"
@@ -1054,6 +1204,48 @@ export const Navbar: React.FC<NavbarProps> = ({
                       aria-label="Tutup notifikasi"
                     >
                       <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Panel Pengaturan Notifikasi Layar HP / Laptop & Tes Suara */}
+                <div className="px-3.5 py-2 bg-gradient-to-r from-indigo-50/90 via-blue-50/90 to-emerald-50/90 border-b border-blue-100 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BellRing className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="text-[10px] font-bold text-slate-700 truncate">
+                      {deviceNotifPerm === 'granted'
+                        ? 'Notifikasi Layar HP/Laptop & Suara Aktif'
+                        : 'Aktifkan notifikasi layar HP/Laptop & bunyi dering'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {deviceNotifPerm !== 'granted' && deviceNotifPerm !== 'unsupported' && (
+                      <button
+                        type="button"
+                        onClick={handleEnableDeviceNotif}
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-lg text-[10px] shadow-2xs transition cursor-pointer"
+                      >
+                        Aktifkan di HP/Laptop
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playNotificationSound();
+                        if (deviceNotifPerm === 'granted') {
+                          triggerDeviceNotification({
+                            id: `test-sound-${Date.now()}`,
+                            judul: 'Tes Notifikasi & Suara NET PJOK 🔔',
+                            pesan: 'Notifikasi layar dan bunyi pengingat berfungsi dengan baik di perangkat Anda.',
+                            tipe: 'forum-diskusi',
+                          });
+                        }
+                      }}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1"
+                      title="Coba bunyikan suara notifikasi"
+                    >
+                      <Volume2 className="w-3 h-3 text-blue-600" />
+                      <span>Tes Bunyi</span>
                     </button>
                   </div>
                 </div>
@@ -1264,6 +1456,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                               {item.isUrgentDeadline ? (
                                 <div className="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
                                   <AlertTriangle className="w-3.5 h-3.5" />
+                                </div>
+                              ) : item.tipe === 'forum-diskusi' ? (
+                                <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                                  <MessageSquare className="w-3.5 h-3.5" />
                                 </div>
                               ) : item.tipe === 'pengumuman' ? (
                                 <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center">
@@ -1553,6 +1749,49 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
       </div>
       </div>
+
+      {/* Floating Incoming Notification Pop-up Banner (Untuk Aplikasi Terinstal di HP / Laptop) */}
+      {incomingToastNotif && (
+        <div className="fixed top-16 right-4 left-4 sm:left-auto sm:w-96 z-50 animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="bg-slate-900/95 text-white border border-blue-500/40 rounded-2xl shadow-2xl p-3.5 backdrop-blur-md flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-md animate-bounce">
+              <BellRing className="w-5 h-5" />
+            </div>
+            <div
+              onClick={() => {
+                const target = incomingToastNotif;
+                setIncomingToastNotif(null);
+                handleNotificationClick(target);
+              }}
+              className="flex-1 min-w-0 cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="px-2 py-0.5 bg-emerald-500 text-slate-950 font-black text-[9px] rounded-full uppercase tracking-wider">
+                  Notifikasi Masuk
+                </span>
+                <span className="text-[10px] text-blue-300 font-semibold">{incomingToastNotif.waktu}</span>
+              </div>
+              <p className="font-extrabold text-xs text-white mt-1 truncate">
+                {incomingToastNotif.judul}
+              </p>
+              <p className="text-[11px] text-slate-300 line-clamp-2 mt-0.5 leading-relaxed">
+                {incomingToastNotif.pesan}
+              </p>
+              <span className="inline-block mt-1.5 text-[10px] font-bold text-emerald-400 hover:underline">
+                Ketuk untuk membuka →
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIncomingToastNotif(null)}
+              className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer shrink-0"
+              aria-label="Tutup pop-up notifikasi"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

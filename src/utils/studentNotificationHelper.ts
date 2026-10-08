@@ -6,6 +6,7 @@ export interface StudentFeatureBadges {
   materi: number;
   tugas: number;
   quiz: number;
+  forumDiskusi: number;
   pendampingan: number;
   refleksi: number;
   penilaianTeman: number;
@@ -163,6 +164,45 @@ export function markSidebarMenuAsReadForUser(userId: string, menuId: string, db?
     const ctx = `refl_${pending.length}_${pending.map((r) => r.id).join('_')}`;
     markSidebarMenuAsRead(userId, 'refleksi-saya', ctx);
     markSidebarMenuAsRead(userId, 'refleksi', ctx);
+    return;
+  }
+
+  if (menuId === 'penilaian-teman-saya' || menuId === 'penilaian-teman') {
+    const myKelasId = currentUser.kelasId || '';
+    const activePeerTasks = (currentDb.tugasPenilaianAntarTeman || []).filter((task) => {
+      if (task.status !== 'AKTIF') return false;
+      if (myKelasId && Array.isArray(task.kelasIds) && task.kelasIds.length > 0 && !task.kelasIds.includes(myKelasId)) {
+        return false;
+      }
+      return true;
+    });
+    const peerRecords = currentDb.penilaianTemanSejawat || [];
+    const incompleteTasks = activePeerTasks.filter((task) => {
+      const myReviewsForTask = peerRecords.filter(
+        (r) => r.tugasId === task.id && r.penilaiId === userId
+      );
+      return myReviewsForTask.length < (task.jumlahWajibDinilai || 1);
+    });
+    const ctx =
+      incompleteTasks.length > 0
+        ? `teman_${incompleteTasks.length}_${incompleteTasks.map((t) => t.id).join('_')}`
+        : 'none';
+    markSidebarMenuAsRead(userId, 'penilaian-teman-saya', ctx);
+    markSidebarMenuAsRead(userId, 'penilaian-teman', ctx);
+    return;
+  }
+
+  if (menuId === 'forum-diskusi' || menuId === 'forum-diskusi-saya') {
+    const forumTopics = currentDb.forumDiskusi || [];
+    const totalComments = forumTopics.reduce((acc, t) => acc + (t.balasan?.length || 0), 0);
+    const latestReplyId =
+      forumTopics
+        .flatMap((t) => t.balasan || [])
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.id ||
+      'none';
+    const ctx = `forum_${forumTopics.length}_${totalComments}_${latestReplyId}`;
+    markSidebarMenuAsRead(userId, 'forum-diskusi', ctx);
+    markSidebarMenuAsRead(userId, 'forum-diskusi-saya', ctx);
     return;
   }
 
@@ -351,6 +391,7 @@ export function calculateStudentFeatureBadges(
       materi: 0,
       tugas: 0,
       quiz: 0,
+      forumDiskusi: 0,
       pendampingan: 0,
       refleksi: 0,
       penilaianTeman: 0,
@@ -469,17 +510,45 @@ export function calculateStudentFeatureBadges(
       ? refleksiBelum
       : 0;
 
-  // 7. Penilaian Teman Sejawat: reviews done by student
-  const temanDalamKelas = (db.users || []).filter(
-    (u) => u.role === 'MURID' && u.kelasId === myKelasId && u.id !== myId
-  );
-  const myPeerReviews = (db.penilaianTemanSejawat || []).filter((p) => p.penilaiId === myId);
-  const reviewedFriendIds = new Set(myPeerReviews.map((p) => p.targetMuridId));
-  const pendingPeerReviews = Math.max(0, temanDalamKelas.length - reviewedFriendIds.size);
-  const penilaianTemanContextKey = `teman_${pendingPeerReviews}`;
+  // 7. Penilaian Teman Sejawat: HANYA tampilkan badge jika ada Tugas Penilaian Antar Teman yang AKTIF untuk kelas murid ini dan belum selesai dinilai.
+  // Jika belum ada tugas penilaian antar teman yang dibuat/aktif (masih kosong), badge = 0!
+  const activePeerTasks = (db.tugasPenilaianAntarTeman || []).filter((task) => {
+    if (task.status !== 'AKTIF') return false;
+    if (myKelasId && Array.isArray(task.kelasIds) && task.kelasIds.length > 0 && !task.kelasIds.includes(myKelasId)) {
+      return false;
+    }
+    return true;
+  });
+  const peerRecords = db.penilaianTemanSejawat || [];
+  const incompletePeerTasks = activePeerTasks.filter((task) => {
+    const myReviewsForTask = peerRecords.filter(
+      (r) => r.tugasId === task.id && r.penilaiId === myId
+    );
+    return myReviewsForTask.length < (task.jumlahWajibDinilai || 1);
+  });
+  const pendingPeerReviews = incompletePeerTasks.length;
+  const penilaianTemanContextKey =
+    pendingPeerReviews > 0
+      ? `teman_${pendingPeerReviews}_${incompletePeerTasks.map((t) => t.id).join('_')}`
+      : 'none';
   const penilaianTemanBadge =
     pendingPeerReviews > 0 && !isSidebarMenuRead(myId, 'penilaian-teman-saya', penilaianTemanContextKey)
       ? pendingPeerReviews
+      : 0;
+
+  // 7b. Forum Diskusi: jumlah aktivitas baru (topik + komentar) yang belum dibuka
+  const forumTopics = db.forumDiskusi || [];
+  const totalForumComments = forumTopics.reduce((acc, t) => acc + (t.balasan?.length || 0), 0);
+  const totalForumActivity = forumTopics.length + totalForumComments;
+  const latestReplyId =
+    forumTopics
+      .flatMap((t) => t.balasan || [])
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.id ||
+    'none';
+  const forumContextKey = `forum_${forumTopics.length}_${totalForumComments}_${latestReplyId}`;
+  const forumDiskusiBadge =
+    totalForumActivity > 0 && !isSidebarMenuRead(myId, 'forum-diskusi', forumContextKey)
+      ? totalForumActivity
       : 0;
 
   // 8. Transkrip Nilai: graded items with teacher feedback
@@ -523,8 +592,10 @@ export function calculateStudentFeatureBadges(
     materiBadge +
     tugasBadge +
     quizBadge +
+    forumDiskusiBadge +
     pendampinganBadge +
     refleksiBadge +
+    penilaianTemanBadge +
     presensiBadge +
     profilBadge;
 
@@ -533,6 +604,7 @@ export function calculateStudentFeatureBadges(
     materi: materiBadge,
     tugas: tugasBadge,
     quiz: quizBadge,
+    forumDiskusi: forumDiskusiBadge,
     pendampingan: pendampinganBadge,
     refleksi: refleksiBadge,
     penilaianTeman: penilaianTemanBadge,

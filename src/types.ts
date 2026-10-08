@@ -608,8 +608,9 @@ export interface NotifikasiItem {
   judul: string;
   pesan: string;
   waktu: string;
-  tipe: 'tugas' | 'quiz' | 'nilai' | 'pengumuman' | 'presensi' | 'deadline' | 'materi' | string;
+  tipe: 'tugas' | 'quiz' | 'nilai' | 'pengumuman' | 'presensi' | 'deadline' | 'materi' | 'forum-diskusi' | string;
   dibaca: boolean;
+  dibacaOleh?: string[]; // userIds who have read this notification
   targetRole?: UserRole | 'ALL';
   targetMuridId?: string;
   targetKelasId?: string;

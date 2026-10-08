@@ -31,6 +31,7 @@ import {
   NotifikasiItem,
 } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 interface FormPendampinganMuridProps {
   db: LMSDatabase;
@@ -1572,9 +1573,18 @@ export const FormPendampinganMurid: React.FC<FormPendampinganMuridProps> = ({
 
                 {/* Bentuk Tindakan Pembinaan */}
                 <div>
-                  <label className="block text-xs font-extrabold text-indigo-950 mb-1">
-                    Bentuk Tindakan / Solusi Pembinaan Guru PJOK:
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-xs font-extrabold text-indigo-950">
+                      Bentuk Tindakan / Solusi Pembinaan Guru PJOK:
+                    </label>
+                    <EmojiPickerButton
+                      label="Tambah Emoticon"
+                      align="right"
+                      onSelectEmoji={(emoji) =>
+                        setFormTindakanPenanganan((prev) => `${prev}${emoji}`)
+                      }
+                    />
+                  </div>
                   <textarea
                     rows={3}
                     value={formTindakanPenanganan}
