@@ -643,6 +643,7 @@ export interface PengaturanSekolah {
   googleSpreadsheetTitle?: string;
   googleSpreadsheetLastBackup?: string;
   googleAppsScriptWebhookUrl?: string;
+  forumDiskusiAktif?: boolean; // Mode Aktif / Non-Aktif Forum Diskusi (hanya diatur oleh Guru & Admin)
 }
 
 export type SettingsApp = PengaturanSekolah;
@@ -891,6 +892,7 @@ export interface ForumDiskusiTopik {
   authorAvatar?: string;
   authorKelasNama?: string;
   disematkan?: boolean; // Pinned topic
+  aktif?: boolean; // Mode Aktif (true/undefined) atau Non-Aktif (false) per topik diskusi (hanya diatur oleh Guru & Admin)
   likes?: string[]; // array of userIds
   balasan: ForumDiskusiBalasan[];
   createdAt: string; // ISO string

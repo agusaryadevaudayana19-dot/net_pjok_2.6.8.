@@ -22,6 +22,9 @@ import {
   ChevronUp,
   Reply,
   CornerDownRight,
+  Power,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import {
   User,
@@ -92,6 +95,34 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
     return resolveKelasId(currentUser.kelasId, db.kelas || []).nama;
   }, [currentUser, db.kelas]);
 
+  const isStaff = currentUser.role === 'ADMIN' || currentUser.role === 'GURU';
+  const isForumGlobalActive = db.settings?.forumDiskusiAktif !== false;
+
+  const handleToggleGlobalForumActive = (nextState: boolean) => {
+    if (!isStaff) return;
+    dataStorage.updateDatabase((prev) => ({
+      ...prev,
+      settings: {
+        ...(prev.settings || {
+          namaSekolah: 'SMA Negeri 1 Tejakula',
+          tahunPelajaran: '2026/2027',
+          semester: 'Ganjil',
+        }),
+        forumDiskusiAktif: nextState,
+      },
+    }));
+  };
+
+  const handleToggleTopikAktif = (topikId: string) => {
+    if (!isStaff) return;
+    dataStorage.updateDatabase((prev) => ({
+      ...prev,
+      forumDiskusi: (prev.forumDiskusi || []).map((t) =>
+        t.id === topikId ? { ...t, aktif: t.aktif === false ? true : false } : t
+      ),
+    }));
+  };
+
   const forumList: ForumDiskusiTopik[] = useMemo(() => {
     const raw = Array.isArray(db.forumDiskusi) ? db.forumDiskusi : [];
     return [...raw].sort((a, b) => {
@@ -133,6 +164,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
 
   const handleCreateTopik = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isForumGlobalActive && !isStaff) return;
     if (!judulBaru.trim() || !isiBaru.trim()) return;
 
     const selectedKelasObj =
@@ -159,6 +191,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
       authorAvatar: currentUser.avatar,
       authorKelasNama: currentUserKelasNama || undefined,
       disematkan: currentUser.role !== 'MURID' ? sematkanBaru : false,
+      aktif: true,
       likes: [],
       balasan: [],
       createdAt: new Date().toISOString(),
@@ -211,6 +244,10 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
     const rawText = customText !== undefined ? customText : replyTexts[topikId] || '';
     const text = rawText.trim();
     if (!text) return;
+
+    const targetTopikCheck = (db.forumDiskusi || []).find((t) => t.id === topikId);
+    const isTopikActive = targetTopikCheck?.aktif !== false;
+    if ((!isForumGlobalActive || !isTopikActive) && !isStaff) return;
 
     const newBalasan: ForumDiskusiBalasan = {
       id: `balas-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -422,7 +459,8 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
   const renderBalasanCard = (
     topikId: string,
     balasan: ForumDiskusiBalasan,
-    isChildReply: boolean = false
+    isChildReply: boolean = false,
+    canInteract: boolean = true
   ) => {
     const replyLikes = Array.isArray(balasan.likes) ? balasan.likes : [];
     const replyLiked = replyLikes.includes(currentUser.id);
@@ -432,7 +470,9 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
       balasan.authorId === currentUser.id;
 
     const isReplyingThis =
-      activeCommentReply?.topikId === topikId && activeCommentReply?.balasanId === balasan.id;
+      canInteract &&
+      activeCommentReply?.topikId === topikId &&
+      activeCommentReply?.balasanId === balasan.id;
 
     return (
       <div
@@ -505,35 +545,37 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
               </button>
 
               {/* Tombol Balas Komentar */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (isReplyingThis) {
-                    setActiveCommentReply(null);
-                    setCommentReplyText('');
-                  } else {
-                    setActiveCommentReply({
-                      topikId,
-                      balasanId: balasan.id,
-                      authorNama: balasan.authorNama,
-                      isiSingkat:
-                        balasan.isi.length > 70
-                          ? `${balasan.isi.slice(0, 70)}...`
-                          : balasan.isi,
-                    });
-                    setCommentReplyText('');
-                  }
-                }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border transition-colors cursor-pointer ${
-                  isReplyingThis
-                    ? 'bg-blue-600 border-blue-600 text-white'
-                    : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
-                }`}
-                title={`Balas komentar ${balasan.authorNama}`}
-              >
-                <Reply className="w-3 h-3" />
-                <span>Balas</span>
-              </button>
+              {canInteract && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isReplyingThis) {
+                      setActiveCommentReply(null);
+                      setCommentReplyText('');
+                    } else {
+                      setActiveCommentReply({
+                        topikId,
+                        balasanId: balasan.id,
+                        authorNama: balasan.authorNama,
+                        isiSingkat:
+                          balasan.isi.length > 70
+                            ? `${balasan.isi.slice(0, 70)}...`
+                            : balasan.isi,
+                      });
+                      setCommentReplyText('');
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border transition-colors cursor-pointer ${
+                    isReplyingThis
+                      ? 'bg-blue-600 border-blue-600 text-white'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                  }`}
+                  title={`Balas komentar ${balasan.authorNama}`}
+                >
+                  <Reply className="w-3 h-3" />
+                  <span>Balas</span>
+                </button>
+              )}
 
               {canDeleteReply && (
                 <button
@@ -698,14 +740,48 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsCreateModalOpen(true)}
-              className="px-5 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Buat Topik Diskusi Baru</span>
-            </button>
+            {/* Kontrol Mode Aktif / Non-Aktif Khusus Akun Guru & Admin */}
+            {isStaff && (
+              <div className="bg-slate-950/40 backdrop-blur-md border border-white/20 p-1.5 rounded-2xl flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleToggleGlobalForumActive(true)}
+                  className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isForumGlobalActive
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-white/75 hover:text-white hover:bg-white/10'
+                  }`}
+                  title="Aktifkan Forum Diskusi untuk semua pengguna"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>Mode Aktif</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleGlobalForumActive(false)}
+                  className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                    !isForumGlobalActive
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-white/75 hover:text-white hover:bg-white/10'
+                  }`}
+                  title="Non-Aktifkan Forum Diskusi (Murid hanya bisa membaca)"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Non-Aktif</span>
+                </button>
+              </div>
+            )}
+
+            {(isForumGlobalActive || isStaff) && (
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(true)}
+                className="px-5 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Buat Topik Diskusi Baru</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -720,14 +796,52 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
             <div className="text-xl sm:text-2xl font-black mt-0.5">{totalBalasanCount}</div>
           </div>
           <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3">
-            <div className="text-[11px] text-blue-200 font-semibold">Status Akses</div>
-            <div className="text-xs sm:text-sm font-extrabold text-emerald-300 mt-1 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>Terbuka untuk Semua</span>
-            </div>
+            <div className="text-[11px] text-blue-200 font-semibold">Status Forum Diskusi</div>
+            {isForumGlobalActive ? (
+              <div className="text-xs sm:text-sm font-extrabold text-emerald-300 mt-1 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>Mode Aktif (Terbuka)</span>
+              </div>
+            ) : (
+              <div className="text-xs sm:text-sm font-extrabold text-rose-300 mt-1 flex items-center gap-1.5">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>Mode Non-Aktif (Ditutup)</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Peringatan ketika Forum Diskusi sedang dalam Mode Non-Aktif */}
+      {!isForumGlobalActive && (
+        <div className="bg-rose-50 border-2 border-rose-200 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-black text-sm text-rose-950">
+                Forum Diskusi Sedang dalam Mode Non-Aktif
+              </h3>
+              <p className="text-xs text-rose-800 mt-0.5 leading-relaxed">
+                {isStaff
+                  ? 'Anda menonaktifkan Forum Diskusi. Saat ini murid hanya dapat membaca topik & komentar yang sudah ada dan tidak dapat mengirim diskusi/balasan baru. Klik tombol "Aktifkan Kembali" untuk membuka diskusi.'
+                  : 'Forum Diskusi saat ini sedang dinonaktifkan sementara oleh Guru PJOK / Administrator. Anda tetap dapat membaca materi pembahasan dan komentar sebelumnya.'}
+              </p>
+            </div>
+          </div>
+          {isStaff && (
+            <button
+              type="button"
+              onClick={() => handleToggleGlobalForumActive(true)}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs inline-flex items-center justify-center gap-1.5 shrink-0 shadow-xs cursor-pointer"
+            >
+              <Power className="w-4 h-4" />
+              <span>Aktifkan Kembali Forum</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Filter & Search Bar */}
       <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-3">
@@ -794,14 +908,16 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
               Siapa pun (Murid, Guru, maupun Admin) dapat memulai diskusi pertama! Klik tombol di bawah untuk mengajukan pertanyaan atau membuka topik obrolan pembelajaran PJOK.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs inline-flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Mulai Diskusi Pertama</span>
-          </button>
+          {(isForumGlobalActive || isStaff) && (
+            <button
+              type="button"
+              onClick={() => setIsCreateModalOpen(true)}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs inline-flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Mulai Diskusi Pertama</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -810,6 +926,8 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
             const likesList = Array.isArray(topik.likes) ? topik.likes : [];
             const isLiked = likesList.includes(currentUser.id);
             const balasanList = Array.isArray(topik.balasan) ? topik.balasan : [];
+            const isTopikAktif = topik.aktif !== false;
+            const canInteractWithTopik = (isForumGlobalActive && isTopikAktif) || isStaff;
             const canDeleteTopik =
               currentUser.role === 'ADMIN' ||
               currentUser.role === 'GURU' ||
@@ -884,8 +1002,36 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Action Icons (Pin / Delete) */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Action Icons (Aktif/Non-Aktif, Pin, Delete) */}
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      {isStaff && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTopikAktif(topik.id)}
+                          title={
+                            isTopikAktif
+                              ? 'Diskusi Aktif — Klik untuk Menonaktifkan komentar topik ini'
+                              : 'Diskusi Non-Aktif — Klik untuk Mengaktifkan kembali topik ini'
+                          }
+                          className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-extrabold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                            isTopikAktif
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                              : 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
+                          }`}
+                        >
+                          {isTopikAktif ? (
+                            <>
+                              <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Aktif</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Non-Aktif</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                       {currentUser.role !== 'MURID' && (
                         <button
                           type="button"
@@ -921,6 +1067,25 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
 
                   {/* Tags Row */}
                   <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold border ${
+                        isTopikAktif && isForumGlobalActive
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      } inline-flex items-center gap-1`}
+                    >
+                      {isTopikAktif && isForumGlobalActive ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Diskusi Aktif</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-3 h-3" />
+                          <span>Diskusi Non-Aktif</span>
+                        </>
+                      )}
+                    </span>
                     <span
                       className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold border ${getKategoriBadgeColor(
                         topik.kategori
@@ -1015,9 +1180,19 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                           const childReplies = getNestedReplies(rootBalasan.id);
                           return (
                             <div key={rootBalasan.id} className="space-y-2.5">
-                              {renderBalasanCard(topik.id, rootBalasan, false)}
+                              {renderBalasanCard(
+                                topik.id,
+                                rootBalasan,
+                                false,
+                                canInteractWithTopik
+                              )}
                               {childReplies.map((childBalasan) =>
-                                renderBalasanCard(topik.id, childBalasan, true)
+                                renderBalasanCard(
+                                  topik.id,
+                                  childBalasan,
+                                  true,
+                                  canInteractWithTopik
+                                )
                               )}
                             </div>
                           );
@@ -1025,70 +1200,95 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                       </div>
                     )}
 
-                    {/* Input Main Comment Box */}
-                    <div className="pt-2 space-y-2">
-                      <textarea
-                        rows={2}
-                        value={replyTexts[topik.id] || ''}
-                        onChange={(e) =>
-                          setReplyTexts((prev) => ({
-                            ...prev,
-                            [topik.id]: e.target.value,
-                          }))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                            e.preventDefault();
-                            handleSendReply(topik.id);
-                          }
-                        }}
-                        placeholder={`Tulis komentar baru pada topik ini sebagai ${currentUser.name}...`}
-                        className="w-full p-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                      />
-                      <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/90 px-3 py-2 rounded-2xl">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-[10px] font-extrabold text-slate-500 mr-1">
-                            Emoticon:
-                          </span>
-                          {['👍', '👏', '🙏', '😊', '😂', '🔥', '💪', '⚽', '🏀', '🏐', '🏆', '❤️', '✅', '🎉'].map(
-                            (em) => (
-                              <button
-                                key={em}
-                                type="button"
-                                onClick={() =>
-                                  setReplyTexts((prev) => ({
-                                    ...prev,
-                                    [topik.id]: `${prev[topik.id] || ''}${em}`,
-                                  }))
-                                }
-                                className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-amber-100 border border-slate-200 flex items-center justify-center text-sm transition-transform hover:scale-110 active:scale-95 cursor-pointer"
-                                title={`Sisipkan ${em}`}
-                              >
-                                {em}
-                              </button>
-                            )
-                          )}
-                          <EmojiPickerButton
-                            label="Lainnya+"
-                            onSelectEmoji={(emoji) =>
-                              setReplyTexts((prev) => ({
-                                ...prev,
-                                [topik.id]: `${prev[topik.id] || ''}${emoji}`,
-                              }))
-                            }
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSendReply(topik.id)}
-                          disabled={!(replyTexts[topik.id] || '').trim()}
-                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0 ml-auto"
-                        >
-                          <Send className="w-4 h-4" />
-                          <span>Kirim Komentar</span>
-                        </button>
+                    {/* Input Main Comment Box atau Informasi Non-Aktif */}
+                    {!canInteractWithTopik ? (
+                      <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-bold text-rose-800">
+                        <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>
+                          Diskusi ini sedang dalam Mode Non-Aktif (Ditutup oleh Guru PJOK / Admin). Komentar baru tidak dapat dikirimkan.
+                        </span>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="pt-2 space-y-2">
+                        {(!isForumGlobalActive || !isTopikAktif) && isStaff && (
+                          <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] font-bold text-amber-800 flex items-center justify-between gap-2">
+                            <span>
+                              ⚠️ Topik/Forum sedang Non-Aktif bagi Murid, namun Anda tetap dapat mengirim komentar sebagai {currentUser.role}.
+                            </span>
+                            {!isTopikAktif && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTopikAktif(topik.id)}
+                                className="px-2 py-0.5 bg-emerald-600 text-white rounded-lg text-[10px] font-extrabold cursor-pointer shrink-0"
+                              >
+                                Aktifkan Topik
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <textarea
+                          rows={2}
+                          value={replyTexts[topik.id] || ''}
+                          onChange={(e) =>
+                            setReplyTexts((prev) => ({
+                              ...prev,
+                              [topik.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              handleSendReply(topik.id);
+                            }
+                          }}
+                          placeholder={`Tulis komentar baru pada topik ini sebagai ${currentUser.name}...`}
+                          className="w-full p-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        />
+                        <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/90 px-3 py-2 rounded-2xl">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-[10px] font-extrabold text-slate-500 mr-1">
+                              Emoticon:
+                            </span>
+                            {['👍', '👏', '🙏', '😊', '😂', '🔥', '💪', '⚽', '🏀', '🏐', '🏆', '❤️', '✅', '🎉'].map(
+                              (em) => (
+                                <button
+                                  key={em}
+                                  type="button"
+                                  onClick={() =>
+                                    setReplyTexts((prev) => ({
+                                      ...prev,
+                                      [topik.id]: `${prev[topik.id] || ''}${em}`,
+                                    }))
+                                  }
+                                  className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-amber-100 border border-slate-200 flex items-center justify-center text-sm transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+                                  title={`Sisipkan ${em}`}
+                                >
+                                  {em}
+                                </button>
+                              )
+                            )}
+                            <EmojiPickerButton
+                              label="Lainnya+"
+                              onSelectEmoji={(emoji) =>
+                                setReplyTexts((prev) => ({
+                                  ...prev,
+                                  [topik.id]: `${prev[topik.id] || ''}${emoji}`,
+                                }))
+                              }
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSendReply(topik.id)}
+                            disabled={!(replyTexts[topik.id] || '').trim()}
+                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0 ml-auto"
+                          >
+                            <Send className="w-4 h-4" />
+                            <span>Kirim Komentar</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
