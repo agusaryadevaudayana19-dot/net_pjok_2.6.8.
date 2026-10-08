@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { SettingsApp, User } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
+import { GoogleSheetsBackupCard } from '../GoogleSheetsBackupCard';
 
 interface SchoolSettingsProps {
   db: LMSDatabase;
@@ -392,6 +393,9 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({ db, currentUser 
           </button>
         </div>
       </form>
+
+      {/* Google Spreadsheet Cloud Backup & Restore Card */}
+      <GoogleSheetsBackupCard db={db} />
 
       {/* Backup & Restore Box */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-4">

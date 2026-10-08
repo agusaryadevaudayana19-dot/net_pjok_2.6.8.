@@ -637,6 +637,10 @@ export interface PengaturanSekolah {
   mataPelajaran?: string;
   temaWarna?: string;
   terakhirSinkron?: string;
+  googleSpreadsheetId?: string;
+  googleSpreadsheetUrl?: string;
+  googleSpreadsheetTitle?: string;
+  googleSpreadsheetLastBackup?: string;
 }
 
 export type SettingsApp = PengaturanSekolah;

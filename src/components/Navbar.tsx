@@ -919,6 +919,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </p>
                     </div>
 
+                    {(currentUser.role === 'ADMIN' || currentUser.role === 'GURU') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSyncDetails(false);
+                          onSelectMenuItem?.('settings');
+                        }}
+                        className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors text-[11px] shadow-2xs cursor-pointer"
+                      >
+                        <Cloud className="w-3.5 h-3.5" />
+                        <span>Cadangkan ke Google Spreadsheet</span>
+                      </button>
+                    )}
+
                     <div className="pt-1 border-t border-gray-100 flex items-center justify-between gap-2">
                       <button
                         type="button"
