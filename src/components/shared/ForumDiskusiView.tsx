@@ -605,21 +605,44 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                   placeholder={`Tulis balasan Anda untuk @${balasan.authorNama}...`}
                   className="w-full p-2.5 bg-slate-50 border border-blue-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <EmojiPickerButton
-                    label="Emoticon"
-                    onSelectEmoji={(emoji) =>
-                      setCommentReplyText((prev) => `${prev}${emoji}`)
-                    }
-                  />
-                  <div className="flex items-center gap-1.5 shrink-0">
+
+                {/* Baris Emoticon Cepat Langsung Terlihat + Tombol Semua Emoticon */}
+                <div className="flex items-center justify-between gap-2 flex-wrap bg-amber-50/70 border border-amber-200/80 px-2.5 py-1.5 rounded-xl">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10px] font-extrabold text-amber-800 mr-1">
+                      Emoticon:
+                    </span>
+                    {['👍', '👏', '🙏', '😊', '😂', '🔥', '💪', '⚽', '🏀', '🏐', '🏆', '❤️', '✅', '🎉'].map(
+                      (em) => (
+                        <button
+                          key={em}
+                          type="button"
+                          onClick={() =>
+                            setCommentReplyText((prev) => `${prev}${em}`)
+                          }
+                          className="w-7 h-7 rounded-lg bg-white hover:bg-amber-100 border border-amber-200/80 flex items-center justify-center text-sm shadow-2xs transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+                          title={`Sisipkan ${em}`}
+                        >
+                          {em}
+                        </button>
+                      )
+                    )}
+                    <EmojiPickerButton
+                      label="Lainnya+"
+                      onSelectEmoji={(emoji) =>
+                        setCommentReplyText((prev) => `${prev}${emoji}`)
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                     <button
                       type="button"
                       onClick={() => {
                         setActiveCommentReply(null);
                         setCommentReplyText('');
                       }}
-                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer"
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer"
                     >
                       Batal
                     </button>
@@ -640,7 +663,7 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                           commentReplyText
                         )
                       }
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>Kirim Balasan</span>
@@ -1022,21 +1045,44 @@ export const ForumDiskusiView: React.FC<ForumDiskusiViewProps> = ({
                         placeholder={`Tulis komentar baru pada topik ini sebagai ${currentUser.name}...`}
                         className="w-full p-3 bg-white border border-slate-300 rounded-2xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                       />
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <EmojiPickerButton
-                          label="Tambah Emoticon"
-                          onSelectEmoji={(emoji) =>
-                            setReplyTexts((prev) => ({
-                              ...prev,
-                              [topik.id]: `${prev[topik.id] || ''}${emoji}`,
-                            }))
-                          }
-                        />
+                      <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/90 px-3 py-2 rounded-2xl">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[10px] font-extrabold text-slate-500 mr-1">
+                            Emoticon:
+                          </span>
+                          {['👍', '👏', '🙏', '😊', '😂', '🔥', '💪', '⚽', '🏀', '🏐', '🏆', '❤️', '✅', '🎉'].map(
+                            (em) => (
+                              <button
+                                key={em}
+                                type="button"
+                                onClick={() =>
+                                  setReplyTexts((prev) => ({
+                                    ...prev,
+                                    [topik.id]: `${prev[topik.id] || ''}${em}`,
+                                  }))
+                                }
+                                className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-amber-100 border border-slate-200 flex items-center justify-center text-sm transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+                                title={`Sisipkan ${em}`}
+                              >
+                                {em}
+                              </button>
+                            )
+                          )}
+                          <EmojiPickerButton
+                            label="Lainnya+"
+                            onSelectEmoji={(emoji) =>
+                              setReplyTexts((prev) => ({
+                                ...prev,
+                                [topik.id]: `${prev[topik.id] || ''}${emoji}`,
+                              }))
+                            }
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleSendReply(topik.id)}
                           disabled={!(replyTexts[topik.id] || '').trim()}
-                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0 ml-auto"
                         >
                           <Send className="w-4 h-4" />
                           <span>Kirim Komentar</span>
