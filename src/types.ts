@@ -641,6 +641,7 @@ export interface PengaturanSekolah {
   googleSpreadsheetUrl?: string;
   googleSpreadsheetTitle?: string;
   googleSpreadsheetLastBackup?: string;
+  googleAppsScriptWebhookUrl?: string;
 }
 
 export type SettingsApp = PengaturanSekolah;

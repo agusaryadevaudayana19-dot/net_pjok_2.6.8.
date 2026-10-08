@@ -180,21 +180,12 @@ async function ensureBackupTabsExist(
 }
 
 /**
- * Sync & write complete LMS database to the Google Spreadsheet
+ * Build the 8 structured sheets payload from the LMSDatabase
  */
-export async function syncDatabaseToSpreadsheet(
-  spreadsheetId: string,
-  db: LMSDatabase,
-  accessToken?: string | null
-): Promise<{ updatedCells: number; spreadsheetUrl: string; title: string; timestamp: string }> {
-  const token = accessToken || getGoogleAccessToken();
-  if (!token) {
-    throw new Error('Sesi Google belum terhubung. Silakan klik tombol Sign in with Google terlebih dahulu.');
-  }
-
-  const meta = await getSpreadsheetMetadata(spreadsheetId, token);
-  await ensureBackupTabsExist(spreadsheetId, meta.sheetTitles, token);
-
+export function buildBackupSheetsPayload(db: LMSDatabase): {
+  sheets: Record<(typeof BACKUP_TAB_NAMES)[number], string[][]>;
+  timestamp: string;
+} {
   const nowStr = new Date().toLocaleString('id-ID', {
     dateStyle: 'medium',
     timeStyle: 'medium',
@@ -285,7 +276,7 @@ export async function syncDatabaseToSpreadsheet(
     ]),
   ];
 
-  // 5. Rekap_Nilai (Gabungan Jawaban Kuis, Pengumpulan Tugas, Penilaian Praktik, dan Penilaian Harian)
+  // 5. Rekap_Nilai
   const nilaiRows: string[][] = [
     ['No', 'Kategori Penilaian', 'Nama Murid', 'Kelas', 'Judul Tugas / Kuis / Materi', 'Nilai / Skor', 'Tanggal', 'Keterangan'],
   ];
@@ -404,6 +395,39 @@ export async function syncDatabaseToSpreadsheet(
     ]);
   }
 
+  return {
+    sheets: {
+      Data_Murid: muridRows,
+      Data_Guru_Staf: stafRows,
+      Daftar_Kelas: kelasRows,
+      Rekap_Presensi: presensiRows,
+      Rekap_Nilai: nilaiRows,
+      Materi_Pembelajaran: materiRows,
+      Tugas_Dan_Kuis: tugasKuisRows,
+      Cadangan_JSON_Utuh: jsonChunks,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Sync & write complete LMS database to the Google Spreadsheet via Google Sheets REST API (OAuth)
+ */
+export async function syncDatabaseToSpreadsheet(
+  spreadsheetId: string,
+  db: LMSDatabase,
+  accessToken?: string | null
+): Promise<{ updatedCells: number; spreadsheetUrl: string; title: string; timestamp: string }> {
+  const token = accessToken || getGoogleAccessToken();
+  if (!token) {
+    throw new Error('Sesi Google belum terhubung. Silakan klik tombol Sign in with Google terlebih dahulu.');
+  }
+
+  const meta = await getSpreadsheetMetadata(spreadsheetId, token);
+  await ensureBackupTabsExist(spreadsheetId, meta.sheetTitles, token);
+
+  const { sheets, timestamp } = buildBackupSheetsPayload(db);
+
   // Clear existing ranges first so old rows don't linger
   await fetch(`${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values:batchClear`, {
     method: 'POST',
@@ -417,16 +441,10 @@ export async function syncDatabaseToSpreadsheet(
   }).catch(() => {});
 
   // Batch write all 8 sheets
-  const valueData = [
-    { range: 'Data_Murid!A1', values: muridRows },
-    { range: 'Data_Guru_Staf!A1', values: stafRows },
-    { range: 'Daftar_Kelas!A1', values: kelasRows },
-    { range: 'Rekap_Presensi!A1', values: presensiRows },
-    { range: 'Rekap_Nilai!A1', values: nilaiRows },
-    { range: 'Materi_Pembelajaran!A1', values: materiRows },
-    { range: 'Tugas_Dan_Kuis!A1', values: tugasKuisRows },
-    { range: 'Cadangan_JSON_Utuh!A1', values: jsonChunks },
-  ];
+  const valueData = BACKUP_TAB_NAMES.map((tabName) => ({
+    range: `${tabName}!A1`,
+    values: sheets[tabName],
+  }));
 
   const writeRes = await fetch(
     `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`,
@@ -457,9 +475,165 @@ export async function syncDatabaseToSpreadsheet(
     updatedCells,
     spreadsheetUrl: meta.spreadsheetUrl,
     title: meta.title,
-    timestamp: new Date().toISOString(),
+    timestamp,
   };
 }
+
+/**
+ * Sync & write complete LMS database to Google Spreadsheet via Google Apps Script Web App URL (NO OAuth required, immune to Error 400: origin_mismatch)
+ */
+export async function syncDatabaseViaAppsScript(
+  webhookUrl: string,
+  db: LMSDatabase
+): Promise<{ spreadsheetUrl: string; title: string; timestamp: string }> {
+  const cleanUrl = (webhookUrl || '').trim();
+  if (!cleanUrl.startsWith('https://script.google.com/macros/s/')) {
+    throw new Error(
+      'URL Web App Google Apps Script tidak valid. Pastikan diawali dengan https://script.google.com/macros/s/.../exec'
+    );
+  }
+
+  const { sheets, timestamp } = buildBackupSheetsPayload(db);
+
+  const res = await fetch(cleanUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8',
+    },
+    body: JSON.stringify({
+      action: 'backup_all',
+      schoolName: db.settings?.namaSekolah || 'SMA Negeri 1 Tejakula',
+      sheets,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gagal mengirim data ke Google Apps Script (HTTP ${res.status}).`);
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!data || data.status !== 'ok') {
+    throw new Error(data?.message || 'Respons dari Google Apps Script tidak valid. Pastikan Anda sudah memilih "Siapa saja (Anyone)" saat Deploy.');
+  }
+
+  return {
+    spreadsheetUrl: data.spreadsheetUrl || '',
+    title: data.title || 'Google Spreadsheet Cadangan LMS PJOK',
+    timestamp,
+  };
+}
+
+/**
+ * Restore complete LMS database from Google Spreadsheet via Google Apps Script Web App URL (NO OAuth required)
+ */
+export async function restoreDatabaseViaAppsScript(webhookUrl: string): Promise<{
+  db: LMSDatabase;
+  spreadsheetUrl: string;
+  title: string;
+}> {
+  const cleanUrl = (webhookUrl || '').trim();
+  if (!cleanUrl.startsWith('https://script.google.com/macros/s/')) {
+    throw new Error(
+      'URL Web App Google Apps Script tidak valid. Pastikan diawali dengan https://script.google.com/macros/s/.../exec'
+    );
+  }
+
+  const res = await fetch(`${cleanUrl}?action=restore`, {
+    method: 'GET',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gagal mengambil data cadangan dari Google Apps Script (HTTP ${res.status}).`);
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!data || data.status !== 'ok' || !data.jsonString) {
+    throw new Error(
+      data?.message || 'Data cadangan belum ditemukan di tab "Cadangan_JSON_Utuh" pada Google Spreadsheet Anda.'
+    );
+  }
+
+  const parsedDb: LMSDatabase = JSON.parse(data.jsonString);
+  if (!parsedDb || typeof parsedDb !== 'object' || !Array.isArray(parsedDb.users)) {
+    throw new Error('Format struktur database cadangan di Google Spreadsheet tidak valid.');
+  }
+
+  return {
+    db: parsedDb,
+    spreadsheetUrl: data.spreadsheetUrl || '',
+    title: data.title || 'Google Spreadsheet Cadangan LMS PJOK',
+  };
+}
+
+/**
+ * Ready-to-paste Google Apps Script code for the user's Spreadsheet (Extensions > Apps Script)
+ */
+export const GOOGLE_APPS_SCRIPT_TEMPLATE = `function doPost(e) {
+  try {
+    var payload = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetsData = payload.sheets || {};
+    var tabNames = Object.keys(sheetsData);
+
+    for (var i = 0; i < tabNames.length; i++) {
+      var name = tabNames[i];
+      var rows = sheetsData[name];
+      if (!rows || !rows.length) continue;
+
+      var sheet = ss.getSheetByName(name);
+      if (!sheet) {
+        sheet = ss.insertSheet(name);
+      } else {
+        sheet.clearContents();
+      }
+      sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+      sheet.setFrozenRows(1);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'ok',
+      title: ss.getName(),
+      spreadsheetUrl: ss.getUrl()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      message: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Cadangan_JSON_Utuh');
+    if (!sheet) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'error',
+        message: 'Tab Cadangan_JSON_Utuh belum ditemukan di Spreadsheet ini.'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    var values = sheet.getDataRange().getValues();
+    var chunks = [];
+    for (var i = 1; i < values.length; i++) {
+      chunks.push({ index: Number(values[i][0] || i), text: String(values[i][4] || '') });
+    }
+    chunks.sort(function(a, b) { return a.index - b.index; });
+    var combined = chunks.map(function(c) { return c.text; }).join('');
+
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'ok',
+      title: ss.getName(),
+      spreadsheetUrl: ss.getUrl(),
+      jsonString: combined
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      message: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
 
 /**
  * Restore complete LMS database from the Cadangan_JSON_Utuh tab of a Google Spreadsheet

@@ -13,6 +13,10 @@ import {
   X,
   ShieldCheck,
   Table,
+  Copy,
+  Check,
+  Code2,
+  Sparkles,
 } from 'lucide-react';
 import { LMSDatabase, dataStorage } from '../services/dataStorage';
 import {
@@ -26,9 +30,12 @@ import {
   createBackupSpreadsheet,
   syncDatabaseToSpreadsheet,
   restoreDatabaseFromSpreadsheet,
+  syncDatabaseViaAppsScript,
+  restoreDatabaseViaAppsScript,
   getSpreadsheetMetadata,
   extractSpreadsheetId,
   BACKUP_TAB_NAMES,
+  GOOGLE_APPS_SCRIPT_TEMPLATE,
 } from '../services/googleSheetsBackup';
 
 interface GoogleSheetsBackupCardProps {
@@ -36,6 +43,10 @@ interface GoogleSheetsBackupCardProps {
 }
 
 export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ db }) => {
+  const [syncMode, setSyncMode] = useState<'apps_script' | 'oauth'>(() =>
+    getGoogleAccessToken() ? 'oauth' : 'apps_script'
+  );
+
   const [needsAuth, setNeedsAuth] = useState<boolean>(() => !getGoogleAccessToken());
   const [token, setToken] = useState<string | null>(() => getGoogleAccessToken());
   const [googleUser, setGoogleUser] = useState<{ email?: string; displayName?: string } | null>(() => {
@@ -47,6 +58,12 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
   const [spreadsheetInput, setSpreadsheetInput] = useState<string>(
     db.settings?.googleSpreadsheetId || db.settings?.googleSpreadsheetUrl || ''
   );
+  const [webhookUrlInput, setWebhookUrlInput] = useState<string>(
+    db.settings?.googleAppsScriptWebhookUrl || ''
+  );
+  const [showScriptGuide, setShowScriptGuide] = useState<boolean>(false);
+  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error' | 'info';
@@ -55,7 +72,12 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
 
   // Confirmation modal state for mutating operations (mandatory per workspace guidelines)
   const [confirmModal, setConfirmModal] = useState<{
-    action: 'create_and_sync' | 'sync_existing' | 'restore_from_sheets';
+    action:
+      | 'create_and_sync'
+      | 'sync_existing'
+      | 'restore_from_sheets'
+      | 'apps_script_sync'
+      | 'apps_script_restore';
     title: string;
     description: string;
     itemSummary: string[];
@@ -82,7 +104,20 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
     if (db.settings?.googleSpreadsheetId && !spreadsheetInput) {
       setSpreadsheetInput(db.settings.googleSpreadsheetId);
     }
-  }, [db.settings?.googleSpreadsheetId]);
+    if (db.settings?.googleAppsScriptWebhookUrl && !webhookUrlInput) {
+      setWebhookUrlInput(db.settings.googleAppsScriptWebhookUrl);
+    }
+  }, [db.settings?.googleSpreadsheetId, db.settings?.googleAppsScriptWebhookUrl]);
+
+  const handleCopyScript = async () => {
+    try {
+      await navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+      setCopiedScript(true);
+      setTimeout(() => setCopiedScript(false), 3000);
+    } catch {
+      // Fallback copy
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setIsLoggingIn(true);
@@ -93,15 +128,19 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
         setToken(result.accessToken);
         setGoogleUser(result.user);
         setNeedsAuth(false);
+        setSyncMode('oauth');
         setStatusMessage({
           type: 'success',
           text: `Berhasil terhubung ke akun Google (${(result.user as any)?.email || 'Aktif'}). Siap mencadangkan data ke Google Sheets!`,
         });
       }
     } catch (err: any) {
+      setSyncMode('apps_script');
       setStatusMessage({
         type: 'error',
-        text: err?.message || 'Gagal masuk dengan akun Google.',
+        text:
+          err?.message ||
+          'Gagal masuk dengan OAuth Google (Error 400: origin_mismatch). Silakan gunakan tab "Metode Cepat Tanpa Login OAuth (Bebas Error 400)" di bawah ini.',
       });
     } finally {
       setIsLoggingIn(false);
@@ -142,6 +181,48 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
     ];
   };
 
+  // --- Apps Script Mode Confirmation Triggers ---
+  const openConfirmAppsScriptSync = () => {
+    const cleanUrl = (webhookUrlInput || db.settings?.googleAppsScriptWebhookUrl || '').trim();
+    if (!cleanUrl.startsWith('https://script.google.com/macros/s/')) {
+      setShowScriptGuide(true);
+      setStatusMessage({
+        type: 'error',
+        text: 'Tempel URL Web App Google Apps Script (https://script.google.com/macros/s/.../exec) terlebih dahulu. Lihat panduan 1 menit di bawah.',
+      });
+      return;
+    }
+    setConfirmModal({
+      action: 'apps_script_sync',
+      title: 'Kirim & Cadangkan Seluruh Data ke Google Spreadsheet?',
+      description:
+        'Aplikasi akan mengirim dan mengisi 8 lembar kerja (Sheet) secara otomatis di Google Spreadsheet Anda tanpa memerlukan login OAuth.',
+      itemSummary: getCountsSummary(),
+    });
+  };
+
+  const openConfirmAppsScriptRestore = () => {
+    const cleanUrl = (webhookUrlInput || db.settings?.googleAppsScriptWebhookUrl || '').trim();
+    if (!cleanUrl.startsWith('https://script.google.com/macros/s/')) {
+      setShowScriptGuide(true);
+      setStatusMessage({
+        type: 'error',
+        text: 'Tempel URL Web App Google Apps Script yang terhubung dengan Spreadsheet cadangan Anda terlebih dahulu.',
+      });
+      return;
+    }
+    setConfirmModal({
+      action: 'apps_script_restore',
+      title: 'Pulihkan (Restore) Data Aplikasi dari Google Spreadsheet?',
+      description:
+        'Data di dalam aplikasi LMS PJOK akan diperbarui menggunakan cadangan utuh yang tersimpan di tab "Cadangan_JSON_Utuh" pada Google Spreadsheet Anda.',
+      itemSummary: [
+        'Seluruh akun murid, kelas, materi, tugas, kuis, presensi, dan nilai akan dipulihkan ke aplikasi & Cloud Firestore.',
+      ],
+    });
+  };
+
+  // --- OAuth Mode Confirmation Triggers ---
   const openConfirmCreateAndSync = () => {
     if (!token) {
       setNeedsAuth(true);
@@ -165,7 +246,7 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
     if (!cleanId) {
       setStatusMessage({
         type: 'error',
-        text: 'Masukkan Link / ID Google Spreadsheet terlebih dahulu, atau klik "Buat Spreadsheet Baru Otomatis".',
+        text: 'Masukkan Link / ID Google Spreadsheet terlebih dahulu, atau klik "Buat Spreadsheet Baru & Cadangkan".',
       });
       return;
     }
@@ -210,6 +291,50 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
     setStatusMessage(null);
 
     try {
+      if (currentAction === 'apps_script_sync') {
+        const cleanUrl = (webhookUrlInput || db.settings?.googleAppsScriptWebhookUrl || '').trim();
+        const res = await syncDatabaseViaAppsScript(cleanUrl, db);
+
+        dataStorage.updateDatabase((prev) => ({
+          ...prev,
+          settings: {
+            ...prev.settings,
+            googleAppsScriptWebhookUrl: cleanUrl,
+            googleSpreadsheetUrl: res.spreadsheetUrl || prev.settings?.googleSpreadsheetUrl,
+            googleSpreadsheetTitle: res.title || prev.settings?.googleSpreadsheetTitle,
+            googleSpreadsheetLastBackup: res.timestamp,
+          },
+        }));
+
+        setStatusMessage({
+          type: 'success',
+          text: `Berhasil mencadangkan seluruh data (8 Sheet) ke Google Spreadsheet "${res.title}"!`,
+        });
+        return;
+      }
+
+      if (currentAction === 'apps_script_restore') {
+        const cleanUrl = (webhookUrlInput || db.settings?.googleAppsScriptWebhookUrl || '').trim();
+        const restored = await restoreDatabaseViaAppsScript(cleanUrl);
+
+        dataStorage.updateDatabase((prev) => ({
+          ...restored.db,
+          settings: {
+            ...(restored.db.settings || prev.settings),
+            googleAppsScriptWebhookUrl: cleanUrl,
+            googleSpreadsheetUrl: restored.spreadsheetUrl || prev.settings?.googleSpreadsheetUrl,
+            googleSpreadsheetTitle: restored.title || prev.settings?.googleSpreadsheetTitle,
+            googleSpreadsheetLastBackup: new Date().toISOString(),
+          },
+        }));
+
+        setStatusMessage({
+          type: 'success',
+          text: `Berhasil memulihkan seluruh database LMS PJOK dari Google Spreadsheet "${restored.title}"!`,
+        });
+        return;
+      }
+
       const activeToken = getGoogleAccessToken() || token;
       if (!activeToken) {
         setNeedsAuth(true);
@@ -326,22 +451,32 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
           </div>
         </div>
 
-        {!needsAuth && token && (
-          <div className="flex items-center gap-2 self-start sm:self-center">
-            <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{googleUser?.email || 'Google Terhubung'}</span>
-            </span>
-            <button
-              type="button"
-              onClick={handleGoogleLogout}
-              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-              title="Putuskan akun Google"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {/* Mode Switcher Tabs */}
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 self-start sm:self-center">
+          <button
+            type="button"
+            onClick={() => setSyncMode('apps_script')}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+              syncMode === 'apps_script'
+                ? 'bg-emerald-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Metode Cepat (Bebas Error 400)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSyncMode('oauth')}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
+              syncMode === 'oauth'
+                ? 'bg-emerald-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Login OAuth Google
+          </button>
+        </div>
       </div>
 
       {/* Status Notification */}
@@ -371,6 +506,45 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
         </div>
       )}
 
+      {/* Active Spreadsheet Info if already linked */}
+      {(db.settings?.googleSpreadsheetUrl || db.settings?.googleSpreadsheetLastBackup) && (
+        <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-extrabold text-xs text-emerald-950 truncate">
+                {db.settings.googleSpreadsheetTitle || 'Google Spreadsheet Cadangan Terhubung'}
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-800 truncate">
+              {db.settings.googleSpreadsheetLastBackup && (
+                <>
+                  Cadangan Terakhir:{' '}
+                  <strong>
+                    {new Date(db.settings.googleSpreadsheetLastBackup).toLocaleString('id-ID', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    })}
+                  </strong>
+                </>
+              )}
+            </p>
+          </div>
+
+          {activeSheetUrl && (
+            <a
+              href={activeSheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition-colors shadow-2xs"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Buka Google Spreadsheet</span>
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Info Box tentang 8 Sheet yang dibuat otomatis */}
       <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2.5 text-xs">
         <div className="flex items-center gap-2 font-extrabold text-slate-800">
@@ -387,164 +561,265 @@ export const GoogleSheetsBackupCard: React.FC<GoogleSheetsBackupCardProps> = ({ 
             </span>
           ))}
         </div>
-        <p className="text-[11px] text-slate-600 leading-relaxed">
-          Anda dapat membuka, mencetak, atau mengunduh Excel langsung dari Google Spreadsheet kapan saja. Jika suatu saat data terhapus, Anda cukup klik <strong>Pulihkan dari Spreadsheet</strong> untuk mengembalikan seluruh data ke aplikasi.
-        </p>
       </div>
 
-      {/* Step 1: Google Sign-In Button if not authenticated */}
-      {needsAuth || !token ? (
-        <div className="p-5 bg-emerald-50/50 border border-emerald-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="space-y-1 text-center sm:text-left">
-            <h4 className="font-extrabold text-xs sm:text-sm text-slate-800">
-              Hubungkan Akun Google Anda untuk Mengaktifkan Cadangan Spreadsheet
-            </h4>
-            <p className="text-[11px] text-slate-600">
-              Klik tombol resmi di samping untuk mengizinkan aplikasi menyimpan cadangan ke Google Sheets Anda.
-            </p>
-          </div>
-
-          {/* Official "Sign in with Google" Material Button style per Workspace Skill */}
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={isLoggingIn}
-            className="gsi-material-button inline-flex items-center gap-3 px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs rounded-full border border-slate-300 shadow-xs transition-all cursor-pointer shrink-0 disabled:opacity-50"
-          >
-            <div className="w-4 h-4 shrink-0">
-              <svg
-                version="1.1"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 48 48"
-                className="w-full h-full block"
-              >
-                <path
-                  fill="#EA4335"
-                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-                ></path>
-                <path
-                  fill="#4285F4"
-                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-                ></path>
-                <path
-                  fill="#FBBC05"
-                  d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-                ></path>
-                <path
-                  fill="#34A853"
-                  d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-                ></path>
-                <path fill="none" d="M0 0h48v48H0z"></path>
-              </svg>
-            </div>
-            <span>{isLoggingIn ? 'Menghubungkan...' : 'Sign in with Google'}</span>
-          </button>
-        </div>
-      ) : (
+      {/* MODE 1: APPS SCRIPT WEBHOOK (IMMUNE TO ERROR 400: ORIGIN_MISMATCH) */}
+      {syncMode === 'apps_script' ? (
         <div className="space-y-4">
-          {/* Active Spreadsheet Info if already linked */}
-          {db.settings?.googleSpreadsheetId && (
-            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="font-extrabold text-xs text-emerald-950 truncate">
-                    {db.settings.googleSpreadsheetTitle || 'Spreadsheet Cadangan Terhubung'}
-                  </span>
-                </div>
-                <p className="text-[11px] text-emerald-800 truncate">
-                  ID: <span className="font-mono">{db.settings.googleSpreadsheetId}</span>
-                  {db.settings.googleSpreadsheetLastBackup && (
-                    <>
-                      {' '}• Cadangan Terakhir:{' '}
-                      <strong>
-                        {new Date(db.settings.googleSpreadsheetLastBackup).toLocaleString('id-ID', {
-                          dateStyle: 'medium',
-                          timeStyle: 'short',
-                        })}
-                      </strong>
-                    </>
-                  )}
+          <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="font-extrabold text-xs text-emerald-950 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  <span>Sinkronisasi Langsung Tanpa Login OAuth (Solusi Permanen Bebas Error 400: origin_mismatch)</span>
+                </h4>
+                <p className="text-[11px] text-emerald-800 mt-0.5">
+                  Tidak perlu mendaftarkan JavaScript Origin di Google Cloud Console. Cukup tempel URL Web App dari Google Spreadsheet Anda.
                 </p>
               </div>
-
-              {activeSheetUrl && (
-                <a
-                  href={activeSheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3.5 py-2 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition-colors shadow-2xs"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Buka Google Spreadsheet</span>
-                </a>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowScriptGuide((v) => !v)}
+                className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-[11px] font-extrabold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+              >
+                <Code2 className="w-3.5 h-3.5" />
+                <span>{showScriptGuide ? 'Tutup Panduan & Kode' : 'Lihat Cara Buat URL & Salin Kode (1 Menit)'}</span>
+              </button>
             </div>
-          )}
 
-          {/* Input Existing Spreadsheet Link or ID */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-700">
-              Link atau ID Google Spreadsheet Tujuan (Opsional bila membuat baru):
-            </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
+            {showScriptGuide && (
+              <div className="p-4 bg-white border border-emerald-200 rounded-2xl space-y-3 text-xs text-slate-700 animate-in fade-in">
+                <div className="font-extrabold text-slate-900">
+                  Langkah Mudah Menghubungkan Google Spreadsheet Anda (Hanya Sekali Saja):
+                </div>
+                <ol className="list-decimal list-inside space-y-1.5 text-[11px] leading-relaxed">
+                  <li>
+                    Buka <a href="https://sheets.new" target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline font-bold">Google Spreadsheet Baru (klik sheets.new)</a> di akun Google Anda.
+                  </li>
+                  <li>
+                    Di menu atas Spreadsheet, klik <strong>Ekstensi (Extensions)</strong> &rarr; <strong>Apps Script</strong>.
+                  </li>
+                  <li>
+                    Hapus kode yang ada di sana, lalu klik tombol <strong>Salin Kode Apps Script</strong> di bawah ini dan tempelkan (Paste) ke editor Apps Script, lalu klik ikon <strong>Simpan (Save)</strong>.
+                  </li>
+                  <li>
+                    Klik tombol biru <strong>Terapkan (Deploy)</strong> di kanan atas &rarr; pilih <strong>Deployment baru (New deployment)</strong>.
+                  </li>
+                  <li>
+                    Klik ikon roda gigi &rarr; pilih jenis <strong>Aplikasi Web (Web app)</strong>. Pada bagian <em>&quot;Siapa yang memiliki akses (Who has access)&quot;</em> pilih <strong>Siapa saja (Anyone)</strong>, lalu klik <strong>Terapkan (Deploy)</strong> &amp; beri izin.
+                  </li>
+                  <li>
+                    Salin <strong>URL Aplikasi Web (Web app URL)</strong> yang muncul (berakhiran <code>/exec</code>), lalu tempelkan pada kolom di bawah ini!
+                  </li>
+                </ol>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-600">Kode Google Apps Script Siap Pakai:</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyScript}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedScript ? 'Kode Berhasil Disalin!' : 'Salin Kode Apps Script'}</span>
+                    </button>
+                  </div>
+                  <pre className="p-3 bg-slate-900 text-emerald-300 rounded-xl text-[10px] font-mono overflow-x-auto max-h-44">
+                    {GOOGLE_APPS_SCRIPT_TEMPLATE}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-800">
+                URL Aplikasi Web (Web App URL) dari Google Spreadsheet Anda:
+              </label>
+              <div className="relative">
                 <Link2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
-                  type="text"
-                  value={spreadsheetInput}
-                  onChange={(e) => setSpreadsheetInput(e.target.value)}
-                  placeholder="Tempel URL Google Spreadsheet atau ID di sini (atau klik Buat Baru di bawah)..."
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                  type="url"
+                  value={webhookUrlInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setWebhookUrlInput(val);
+                    dataStorage.updateDatabase((prev) => ({
+                      ...prev,
+                      settings: {
+                        ...prev.settings,
+                        googleAppsScriptWebhookUrl: val.trim(),
+                      },
+                    }));
+                  }}
+                  placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                  className="w-full pl-9 pr-3 py-2.5 bg-white border border-emerald-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={openConfirmAppsScriptSync}
+                disabled={isProcessing}
+                className="p-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                <span>Simpan / Update Cadangan ke Google Spreadsheet</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={openConfirmAppsScriptRestore}
+                disabled={isProcessing}
+                className="p-3.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-amber-700" />
+                )}
+                <span>Pulihkan (Restore) Data dari Spreadsheet</span>
+              </button>
+            </div>
           </div>
+        </div>
+      ) : (
+        /* MODE 2: GOOGLE OAUTH LOGIN */
+        <div className="space-y-4">
+          {!needsAuth && token && (
+            <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <span className="text-xs font-bold text-emerald-900 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Terhubung dengan OAuth Google ({googleUser?.email || 'Aktif'})</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleGoogleLogout}
+                className="px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100 rounded-lg flex items-center gap-1 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Putuskan</span>
+              </button>
+            </div>
+          )}
 
-          {/* Action Buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-            <button
-              type="button"
-              onClick={openConfirmCreateAndSync}
-              disabled={isProcessing}
-              className="p-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isProcessing ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4" />
-              )}
-              <span>Buat Spreadsheet Baru & Cadangkan</span>
-            </button>
+          {needsAuth || !token ? (
+            <div className="p-5 bg-emerald-50/50 border border-emerald-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="space-y-1 text-center sm:text-left">
+                <h4 className="font-extrabold text-xs sm:text-sm text-slate-800">
+                  Hubungkan Akun Google via OAuth
+                </h4>
+                <p className="text-[11px] text-slate-600">
+                  Klik tombol di samping untuk masuk dengan Google. Bila muncul kendala <em>Error 400: origin_mismatch</em> karena pembatasan domain preview, gunakan tab <strong>Metode Cepat (Bebas Error 400)</strong> di atas.
+                </p>
+              </div>
 
-            <button
-              type="button"
-              onClick={openConfirmSyncExisting}
-              disabled={isProcessing}
-              className="p-3.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isProcessing ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4" />
-              )}
-              <span>Simpan / Update ke Spreadsheet</span>
-            </button>
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={isLoggingIn}
+                className="gsi-material-button inline-flex items-center gap-3 px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs rounded-full border border-slate-300 shadow-xs transition-all cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                <div className="w-4 h-4 shrink-0">
+                  <svg
+                    version="1.1"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 48 48"
+                    className="w-full h-full block"
+                  >
+                    <path
+                      fill="#EA4335"
+                      d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                    ></path>
+                    <path
+                      fill="#4285F4"
+                      d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                    ></path>
+                    <path
+                      fill="#FBBC05"
+                      d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                    ></path>
+                    <path
+                      fill="#34A853"
+                      d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                    ></path>
+                    <path fill="none" d="M0 0h48v48H0z"></path>
+                  </svg>
+                </div>
+                <span>{isLoggingIn ? 'Menghubungkan...' : 'Sign in with Google'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  Link atau ID Google Spreadsheet Tujuan (Opsional bila membuat baru):
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Link2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={spreadsheetInput}
+                      onChange={(e) => setSpreadsheetInput(e.target.value)}
+                      placeholder="Tempel URL Google Spreadsheet atau ID di sini..."
+                      className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
 
-            <button
-              type="button"
-              onClick={openConfirmRestore}
-              disabled={isProcessing}
-              className="p-3.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isProcessing ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4 text-amber-700" />
-              )}
-              <span>Pulihkan dari Spreadsheet</span>
-            </button>
-          </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={openConfirmCreateAndSync}
+                  disabled={isProcessing}
+                  className="p-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isProcessing ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  <span>Buat Spreadsheet Baru & Cadangkan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openConfirmSyncExisting}
+                  disabled={isProcessing}
+                  className="p-3.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isProcessing ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  <span>Simpan / Update ke Spreadsheet</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openConfirmRestore}
+                  disabled={isProcessing}
+                  className="p-3.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isProcessing ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 text-amber-700" />
+                  )}
+                  <span>Pulihkan dari Spreadsheet</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
