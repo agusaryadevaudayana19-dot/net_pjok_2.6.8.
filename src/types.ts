@@ -125,6 +125,14 @@ export interface Tugas {
   dibuatPada?: string;
 }
 
+export interface BerkasLampiran {
+  id?: string;
+  name: string;
+  url: string;
+  type?: 'image' | 'document' | string;
+  size?: number;
+}
+
 export interface PengumpulanTugas {
   id: string;
   tugasId: string;
@@ -137,7 +145,9 @@ export interface PengumpulanTugas {
   jawabanPerSoal?: Record<string, string>;
   fileUrl?: string;
   namaFile?: string;
+  files?: BerkasLampiran[];
   linkVideo?: string;
+  links?: string[];
   catatanSiswa?: string;
   catatanMurid?: string;
   status: 'Belum Dikerjakan' | 'Sudah Dikumpulkan' | 'Dinilai' | 'Terlambat' | 'Dikumpulkan';

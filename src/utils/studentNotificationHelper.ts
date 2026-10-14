@@ -196,8 +196,76 @@ export function markSidebarMenuAsReadForUser(userId: string, menuId: string, db?
     return;
   }
 
+  if (menuId === 'materi-saya' || menuId === 'materi') {
+    const activeMaterials = (currentDb.materi || []).filter((m) => {
+      if (m.status && m.status !== 'Publish') return false;
+      if (!isItemAssignedToStudentClass(m, currentUser, currentDb.kelas)) return false;
+      return true;
+    });
+    const ctx = `mat_${activeMaterials.map((m) => m.id).join('_')}`;
+    markSidebarMenuAsRead(userId, 'materi-saya', ctx);
+    markSidebarMenuAsRead(userId, 'materi', ctx);
+    markSidebarMenuAsRead(userId, 'materi-saya', 'read');
+    markSidebarMenuAsRead(userId, 'materi', 'read');
+
+    try {
+      const readKey = `read_materi_ids_${userId}`;
+      const existing: string[] = JSON.parse(localStorage.getItem(readKey) || '[]');
+      const allIds = Array.from(new Set([...existing, ...activeMaterials.map((m) => m.id)]));
+      localStorage.setItem(readKey, JSON.stringify(allIds));
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
   // Default mark read
   markSidebarMenuAsRead(userId, menuId, 'read');
+}
+
+export function getReadMateriIds(userId: string): string[] {
+  if (typeof window === 'undefined' || !userId) return [];
+  try {
+    const raw = localStorage.getItem(`read_materi_ids_${userId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markMateriItemAsRead(userId: string, materiId: string, db?: LMSDatabase): void {
+  if (typeof window === 'undefined' || !userId || !materiId) return;
+  try {
+    const readKey = `read_materi_ids_${userId}`;
+    const existing: string[] = JSON.parse(localStorage.getItem(readKey) || '[]');
+    if (!existing.includes(materiId)) {
+      existing.push(materiId);
+      localStorage.setItem(readKey, JSON.stringify(existing));
+    }
+
+    const currentDb = db || dataStorage.getDatabase();
+    const currentUser = (currentDb.users || []).find((u) => u.id === userId);
+    if (currentUser) {
+      const activeMaterials = (currentDb.materi || []).filter((m) => {
+        if (m.status && m.status !== 'Publish') return false;
+        if (!isItemAssignedToStudentClass(m, currentUser, currentDb.kelas)) return false;
+        return true;
+      });
+      const unreadCount = activeMaterials.filter((m) => !existing.includes(m.id)).length;
+      if (unreadCount === 0) {
+        const ctx = `mat_${activeMaterials.map((m) => m.id).join('_')}`;
+        markSidebarMenuAsRead(userId, 'materi-saya', ctx);
+        markSidebarMenuAsRead(userId, 'materi', ctx);
+        markSidebarMenuAsRead(userId, 'materi-saya', 'read');
+        markSidebarMenuAsRead(userId, 'materi', 'read');
+      }
+    }
+    window.dispatchEvent(
+      new CustomEvent('lms_sidebar_badge_change', { detail: { menuId: 'materi-saya', materiId } })
+    );
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -417,9 +485,16 @@ export function calculateStudentFeatureBadges(
   });
   const materiAktif = materiAktifList.length;
   const materiContextKey = `mat_${materiAktifList.map((m) => m.id).join('_')}`;
+  const readMateriList = getReadMateriIds(myId);
+  const unreadMateriCount = materiAktifList.filter((m) => !readMateriList.includes(m.id)).length;
+  const isMenuRead =
+    isSidebarMenuRead(myId, 'materi-saya', materiContextKey) ||
+    isSidebarMenuRead(myId, 'materi-saya', 'read') ||
+    unreadMateriCount === 0;
+
   const materiBadge =
-    materiAktif > 0 && !isSidebarMenuRead(myId, 'materi-saya', materiContextKey)
-      ? materiAktif
+    materiAktif > 0 && !isMenuRead
+      ? unreadMateriCount
       : 0;
 
   // 3. Tugas: belum dikumpulkan strictly assigned to student's class

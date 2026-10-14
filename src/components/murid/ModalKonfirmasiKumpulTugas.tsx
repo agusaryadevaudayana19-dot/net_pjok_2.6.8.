@@ -24,8 +24,10 @@ interface ModalKonfirmasiKumpulTugasProps {
   submissionData: {
     isiJawaban?: string;
     jawabanPerSoal?: Record<string, string>;
-    uploadedFile?: { name: string; url: string; type: 'image' | 'document' } | null;
+    uploadedFile?: { name: string; url: string; type: string } | null;
+    uploadedFiles?: Array<{ id?: string; name: string; url: string; type: string; size?: number }>;
     linkVideo?: string;
+    links?: string[];
     catatan?: string;
   };
   isNearDeadline: boolean;
@@ -73,8 +75,22 @@ export const ModalKonfirmasiKumpulTugas: React.FC<ModalKonfirmasiKumpulTugasProp
     Boolean(submissionData.isiJawaban && submissionData.isiJawaban.trim().length > 0) ||
     answeredQuestionsCount > 0;
 
-  const hasFile = Boolean(submissionData.uploadedFile);
-  const hasVideo = Boolean(submissionData.linkVideo && submissionData.linkVideo.trim().length > 0);
+  // Multi-file and multi-link detection
+  const filesList =
+    Array.isArray(submissionData.uploadedFiles) && submissionData.uploadedFiles.length > 0
+      ? submissionData.uploadedFiles
+      : submissionData.uploadedFile
+      ? [submissionData.uploadedFile]
+      : [];
+  const hasFile = filesList.length > 0;
+
+  const validLinksList =
+    Array.isArray(submissionData.links) && submissionData.links.length > 0
+      ? submissionData.links.map((l) => l.trim()).filter(Boolean)
+      : submissionData.linkVideo && submissionData.linkVideo.trim().length > 0
+      ? [submissionData.linkVideo.trim()]
+      : [];
+  const hasVideo = validLinksList.length > 0;
   const hasNotes = Boolean(submissionData.catatan && submissionData.catatan.trim().length > 0);
 
   return (
@@ -222,66 +238,90 @@ export const ModalKonfirmasiKumpulTugas: React.FC<ModalKonfirmasiKumpulTugasProp
             </div>
 
             <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white">
-              {/* 1. Berkas / File Lampiran */}
-              <div className="p-3.5 flex items-start justify-between gap-3 hover:bg-slate-50/60 transition-colors">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                      hasFile ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
-                    }`}
-                  >
-                    {submissionData.uploadedFile?.type === 'image' ? (
+              {/* 1. Berkas / File Lampiran (Bisa lebih dari 1 foto/dokumen) */}
+              <div className="p-3.5 space-y-2 hover:bg-slate-50/60 transition-colors">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        hasFile ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                      }`}
+                    >
                       <ImageIcon className="w-4 h-4" />
-                    ) : (
-                      <FileText className="w-4 h-4" />
-                    )}
-                  </div>
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase">
-                      Berkas / Dokumen Lampiran
                     </div>
-                    {hasFile ? (
-                      <div>
-                        <p className="font-black text-slate-900 text-xs truncate max-w-xs sm:max-w-sm">
-                          {submissionData.uploadedFile?.name}
-                        </p>
-                        <span className="inline-block text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 mt-1">
-                          ✓ Berkas terlampir dan siap terkirim
-                        </span>
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                        <span>Berkas / Foto Praktik Lampiran</span>
+                        {hasFile && (
+                          <span className="px-2 py-0.2 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-extrabold">
+                            {filesList.length} Berkas
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <p className="text-slate-400 italic text-[11px]">
-                        Tidak ada berkas file foto/PDF yang dilampirkan
-                      </p>
-                    )}
+                      {hasFile ? (
+                        <div className="space-y-1 mt-1">
+                          {filesList.map((f, fIdx) => (
+                            <div key={f.id || fIdx} className="flex items-center gap-1.5 text-xs text-slate-800 font-medium">
+                              <span className="text-[10px] text-slate-400 font-mono">#{fIdx + 1}</span>
+                              <span className="truncate max-w-xs">{f.name}</span>
+                              <span className="text-[9px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                {f.type === 'image' || (f.url && f.url.startsWith('data:image')) ? 'Foto' : 'Dokumen'}
+                              </span>
+                            </div>
+                          ))}
+                          <span className="inline-block text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 mt-1">
+                            ✓ {filesList.length} berkas terlampir dan siap terkirim
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-slate-400 italic text-[11px]">
+                          Tidak ada berkas file foto/PDF yang dilampirkan
+                        </p>
+                      )}
+                    </div>
                   </div>
+
+                  {hasFile && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFilePreview(!showFilePreview)}
+                      className="shrink-0 px-2.5 py-1 text-[11px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      {showFilePreview ? 'Tutup Pratinjau' : 'Lihat Pratinjau Foto'}
+                    </button>
+                  )}
                 </div>
 
-                {hasFile && submissionData.uploadedFile?.url && (
-                  <button
-                    type="button"
-                    onClick={() => setShowFilePreview(!showFilePreview)}
-                    className="shrink-0 px-2.5 py-1 text-[11px] font-bold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    {showFilePreview ? 'Tutup Pratinjau' : 'Lihat Pratinjau'}
-                  </button>
+                {/* Quick Image Preview Gallery if toggled */}
+                {showFilePreview && hasFile && (
+                  <div className="p-3 bg-slate-100/70 rounded-xl border border-slate-200 space-y-2">
+                    <div className="text-[10px] font-bold text-slate-600 mb-1">
+                      Pratinjau Foto Praktik / Dokumen ({filesList.length} file):
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {filesList.map((f, idx) => (
+                        <div key={f.id || idx} className="bg-white rounded-lg p-1.5 border border-slate-200 text-center">
+                          {f.type === 'image' || (f.url && f.url.startsWith('data:image')) ? (
+                            <img
+                              src={f.url}
+                              alt={f.name}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-24 object-cover rounded-md"
+                            />
+                          ) : (
+                            <div className="w-full h-24 bg-sky-50 rounded-md flex items-center justify-center text-sky-600">
+                              <FileText className="w-6 h-6" />
+                            </div>
+                          )}
+                          <p className="text-[10px] text-slate-700 truncate font-semibold mt-1">
+                            {f.name}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {/* Quick Image Preview if toggled */}
-              {showFilePreview && hasFile && submissionData.uploadedFile?.type === 'image' && (
-                <div className="p-3 bg-slate-100/70 text-center border-t border-slate-200">
-                  <img
-                    src={submissionData.uploadedFile.url}
-                    alt="Pratinjau Berkas"
-                    referrerPolicy="no-referrer"
-                    className="max-h-48 mx-auto rounded-xl border border-slate-300 object-contain shadow-xs"
-                  />
-                  <span className="text-[10px] text-slate-500 block mt-1">
-                    Pratinjau Foto Tugas yang akan dikirim
-                  </span>
-                </div>
-              )}
 
               {/* 2. Jawaban Soal Uraian Mandiri */}
               <div className="p-3.5 flex items-start gap-3 hover:bg-slate-50/60 transition-colors">
@@ -335,19 +375,29 @@ export const ModalKonfirmasiKumpulTugas: React.FC<ModalKonfirmasiKumpulTugasProp
                 </div>
               </div>
 
-              {/* 3. Link Video (Jika ada) */}
+              {/* 3. Link Video & Dokumen (Bisa lebih dari 1 link) */}
               {hasVideo && (
                 <div className="p-3.5 flex items-start gap-3 hover:bg-slate-50/60 transition-colors">
                   <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
                     <Video className="w-4 h-4" />
                   </div>
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase">
-                      Tautan Video Olahraga
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                      <span>Tautan Video & Dokumen (YouTube / Drive)</span>
+                      <span className="px-2 py-0.2 bg-rose-100 text-rose-800 rounded-full text-[10px] font-extrabold">
+                        {validLinksList.length} Link
+                      </span>
                     </div>
-                    <p className="font-semibold text-rose-700 text-xs truncate max-w-xs sm:max-w-md">
-                      {submissionData.linkVideo}
-                    </p>
+                    <div className="space-y-1">
+                      {validLinksList.map((lnk, lIdx) => (
+                        <div key={lIdx} className="flex items-center gap-2 text-xs">
+                          <span className="text-[10px] text-slate-400 font-mono">#{lIdx + 1}</span>
+                          <span className="font-semibold text-rose-700 truncate max-w-xs sm:max-w-md">
+                            {lnk}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

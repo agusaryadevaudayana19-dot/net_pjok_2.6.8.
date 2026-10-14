@@ -9,24 +9,34 @@ interface InAppMediaModalProps {
   category?: string;
 }
 
-export function parseMediaUrl(rawUrl: string): {
+export function parseMediaUrl(
+  rawUrl: string,
+  options?: { autoplay?: boolean }
+): {
   embedUrl: string;
   type: 'youtube' | 'drive' | 'pdf' | 'web';
   cleanUrl: string;
+  videoId?: string;
+  thumbnailUrl?: string;
 } {
   const url = (rawUrl || '').trim();
   if (!url) {
     return { embedUrl: '', type: 'web', cleanUrl: '' };
   }
 
+  const shouldAutoplay = options?.autoplay ?? true;
+  const autoplayParam = shouldAutoplay ? 'autoplay=1' : 'autoplay=0';
+
   // 1. YouTube
   if (url.includes('youtube.com/watch')) {
     const videoId = url.split('v=')[1]?.split('&')[0];
     if (videoId) {
       return {
-        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`,
+        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${autoplayParam}&rel=0`,
         type: 'youtube',
         cleanUrl: url,
+        videoId,
+        thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
       };
     }
   }
@@ -34,9 +44,11 @@ export function parseMediaUrl(rawUrl: string): {
     const videoId = url.split('youtu.be/')[1]?.split('?')[0];
     if (videoId) {
       return {
-        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`,
+        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${autoplayParam}&rel=0`,
         type: 'youtube',
         cleanUrl: url,
+        videoId,
+        thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
       };
     }
   }
@@ -44,17 +56,22 @@ export function parseMediaUrl(rawUrl: string): {
     const videoId = url.split('shorts/')[1]?.split('?')[0];
     if (videoId) {
       return {
-        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`,
+        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${autoplayParam}&rel=0`,
         type: 'youtube',
         cleanUrl: url,
+        videoId,
+        thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
       };
     }
   }
   if (url.includes('youtube.com/embed/')) {
+    const videoId = url.split('embed/')[1]?.split('?')[0];
     return {
-      embedUrl: url,
+      embedUrl: url.includes('?') ? `${url}&${autoplayParam}` : `${url}?${autoplayParam}&rel=0`,
       type: 'youtube',
       cleanUrl: url,
+      videoId: videoId || undefined,
+      thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : undefined,
     };
   }
 

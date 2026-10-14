@@ -19,8 +19,9 @@ import {
   ListOrdered,
   HelpCircle,
   AlertTriangle,
+  Plus,
 } from 'lucide-react';
-import { Tugas, PengumpulanTugas, User, isItemAssignedToStudentClass } from '../../types';
+import { Tugas, PengumpulanTugas, BerkasLampiran, User, isItemAssignedToStudentClass } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { InAppMediaModal } from '../shared/InAppMediaModal';
 import { parseDeadlineToDate, formatTimeRemaining, formatDeadlineIndo } from '../../utils/deadlineNotification';
@@ -87,8 +88,12 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
   // Form submission states
   const [isiJawaban, setIsiJawaban] = useState('');
   const [jawabanPerSoal, setJawabanPerSoal] = useState<Record<string, string>>({});
+  const [links, setLinks] = useState<string[]>(['']);
   const [linkVideo, setLinkVideo] = useState('');
   const [linkDokumen, setLinkDokumen] = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState<
+    Array<{ id: string; name: string; url: string; type: string; size?: number }>
+  >([]);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; url: string; type: string } | null>(null);
   const [catatan, setCatatan] = useState('');
   const [pasteWarning, setPasteWarning] = useState(false);
@@ -147,26 +152,132 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     if (existing) {
       setIsiJawaban(existing.isiJawaban || '');
       setJawabanPerSoal(existing.jawabanPerSoal || {});
-      setLinkVideo(existing.linkVideo || '');
-      setLinkDokumen(existing.fileUrl || '');
       setCatatan(existing.catatanMurid || existing.catatanSiswa || '');
-      if (existing.fileUrl) {
-        setUploadedFile({
+
+      // Load links
+      if (Array.isArray(existing.links) && existing.links.length > 0) {
+        setLinks(existing.links);
+        setLinkVideo(existing.links[0] || '');
+      } else if (existing.linkVideo) {
+        setLinks([existing.linkVideo]);
+        setLinkVideo(existing.linkVideo);
+      } else {
+        setLinks(['']);
+        setLinkVideo('');
+      }
+
+      // Load files
+      if (Array.isArray(existing.files) && existing.files.length > 0) {
+        const mappedFiles = existing.files.map((f, idx) => ({
+          id: f.id || `f-${idx}-${Date.now()}`,
+          name: f.name,
+          url: f.url,
+          type: f.type || (f.url.startsWith('data:image') ? 'image' : 'document'),
+          size: f.size,
+        }));
+        setUploadedFiles(mappedFiles);
+        setUploadedFile(mappedFiles[0] || null);
+        setLinkDokumen(mappedFiles[0]?.url || '');
+      } else if (existing.fileUrl) {
+        const singleFile = {
+          id: `f-legacy-${Date.now()}`,
           name: existing.namaFile || 'Berkas Lampiran Tugas',
           url: existing.fileUrl,
           type: existing.fileUrl.startsWith('data:image') ? 'image' : 'document',
-        });
+        };
+        setUploadedFiles([singleFile]);
+        setUploadedFile(singleFile);
+        setLinkDokumen(existing.fileUrl);
       } else {
+        setUploadedFiles([]);
         setUploadedFile(null);
+        setLinkDokumen('');
       }
     } else {
       setIsiJawaban('');
       setJawabanPerSoal({});
+      setLinks(['']);
       setLinkVideo('');
       setLinkDokumen('');
       setCatatan('');
+      setUploadedFiles([]);
       setUploadedFile(null);
     }
+  };
+
+  // Multi-link helpers
+  const handleAddLink = () => {
+    setLinks((prev) => [...prev, '']);
+  };
+
+  const handleLinkChange = (index: number, val: string) => {
+    setLinks((prev) => {
+      const copy = [...prev];
+      copy[index] = val;
+      return copy;
+    });
+    if (index === 0) {
+      setLinkVideo(val);
+    }
+  };
+
+  const handleRemoveLink = (index: number) => {
+    setLinks((prev) => {
+      const filtered = prev.filter((_, i) => i !== index);
+      const nextLinks = filtered.length > 0 ? filtered : [''];
+      setLinkVideo(nextLinks[0] || '');
+      return nextLinks;
+    });
+  };
+
+  // Multi-file upload helpers
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const filesArray = Array.from(fileList);
+    setValidationError(null);
+
+    for (const file of filesArray) {
+      if (file.size > 15 * 1024 * 1024) {
+        setValidationError(
+          `Ukuran berkas "${file.name}" melebihi batas 15MB. Silakan gunakan berkas berukuran lebih kecil atau gunakan tautan Google Drive / YouTube.`
+        );
+        return;
+      }
+    }
+
+    filesArray.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        const newFile = {
+          id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          url: dataUrl,
+          type: file.type.startsWith('image/') ? 'image' : 'document',
+          size: file.size,
+        };
+        setUploadedFiles((prev) => {
+          const next = [...prev, newFile];
+          setUploadedFile(next[0] || null);
+          setLinkDokumen(next[0]?.url || '');
+          return next;
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = '';
+  };
+
+  const handleRemoveFile = (fileId: string) => {
+    setUploadedFiles((prev) => {
+      const filtered = prev.filter((f) => f.id !== fileId);
+      setUploadedFile(filtered[0] || null);
+      setLinkDokumen(filtered[0]?.url || '');
+      return filtered;
+    });
   };
 
   // Auto-open upload submission modal if initialTugasId is provided via notification
@@ -186,36 +297,15 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     }
   }, [initialTugasId, db.tugas]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 15 * 1024 * 1024) {
-      setValidationError(
-        'Ukuran berkas melebihi batas 15MB. Untuk video berdurasi panjang, silakan gunakan tautan Google Drive atau YouTube.'
-      );
-      return;
-    }
-
-    setValidationError(null);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setUploadedFile({
-        name: file.name,
-        url: dataUrl,
-        type: file.type.startsWith('image/') ? 'image' : 'document',
-      });
-      setLinkDokumen(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
-
   // Tahap 1: Validasi dan Buka Modal Konfirmasi Pengumpulan
   const handleInitiateSubmission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeUploadTugas) return;
     setValidationError(null);
+
+    const validLinks = links.map((l) => l.trim()).filter(Boolean);
+    const hasAnyFile = uploadedFiles.length > 0;
+    const hasAnyLink = validLinks.length > 0;
 
     // Validasi Jawaban Langsung jika jenis tugas mewajibkan
     if (
@@ -242,9 +332,9 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
       activeUploadTugas.jenisPengumpulan === 'Dokumen' ||
       activeUploadTugas.jenisPengumpulan === 'Video/Foto'
     ) {
-      if (!uploadedFile && !linkDokumen.trim() && !linkVideo.trim()) {
+      if (!hasAnyFile && !hasAnyLink) {
         setValidationError(
-          'Mohon pilih dan lampirkan berkas foto praktik / dokumen PDF atau tautan video tugas Anda.'
+          'Mohon lampirkan minimal 1 foto/gambar praktik, berkas PDF, atau tautan video tugas Anda.'
         );
         return;
       }
@@ -260,6 +350,9 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     setIsSubmitting(true);
 
     const existing = mySubmissions.find((p) => p.tugasId === activeUploadTugas.id);
+    const validLinks = links.map((l) => l.trim()).filter(Boolean);
+    const primaryFile = uploadedFiles[0];
+    const primaryLink = validLinks[0];
 
     // Combine answers for backward compatibility and overview
     let combinedJawaban = isiJawaban.trim();
@@ -281,9 +374,17 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
       kelasId: currentUser.kelasId,
       isiJawaban: combinedJawaban || undefined,
       jawabanPerSoal: jawabanPerSoal,
-      linkVideo: linkVideo.trim() || undefined,
-      fileUrl: uploadedFile?.url || linkDokumen.trim() || undefined,
-      namaFile: uploadedFile?.name || undefined,
+      linkVideo: primaryLink || undefined,
+      fileUrl: primaryFile?.url || undefined,
+      namaFile: primaryFile?.name || undefined,
+      files: uploadedFiles.map((f) => ({
+        id: f.id,
+        name: f.name,
+        url: f.url,
+        type: f.type,
+        size: f.size,
+      })),
+      links: validLinks,
       catatanMurid: catatan.trim(),
       catatanSiswa: catatan.trim(),
       tanggalKumpul: new Date().toISOString().slice(0, 10),
@@ -515,43 +616,82 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
                         </div>
                       ) : null}
 
-                      {submission.linkVideo && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setMediaModal({
-                              isOpen: true,
-                              url: submission.linkVideo!,
-                              title: `Video Tugas: ${t.judul}`,
-                              category: 'Video Tugas Murid',
-                            })
-                          }
-                          className="text-rose-600 hover:underline flex items-center gap-1 font-semibold truncate text-left"
-                          title="Tonton Video di Aplikasi"
-                        >
-                          <Video className="w-3.5 h-3.5 shrink-0" />
-                          <span>Lihat Video: {submission.linkVideo}</span>
-                        </button>
-                      )}
-                      {submission.fileUrl && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setMediaModal({
-                                isOpen: true,
-                                url: submission.fileUrl!,
-                                title: `Berkas Tugas: ${t.judul}`,
-                                category: 'Dokumen / Foto Praktik',
-                              })
-                            }
-                            className="px-2.5 py-1 bg-sky-100 text-sky-800 hover:bg-sky-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
-                          >
-                            <FileText className="w-3.5 h-3.5 shrink-0" />
-                            <span>Buka Berkas ({submission.namaFile || 'Lampiran'})</span>
-                          </button>
-                        </div>
-                      )}
+                      {/* Multiple links / single link */}
+                      {(() => {
+                        const allLinks = Array.isArray(submission.links) && submission.links.length > 0
+                          ? submission.links
+                          : submission.linkVideo
+                          ? [submission.linkVideo]
+                          : [];
+                        if (allLinks.length === 0) return null;
+                        return (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                              <Video className="w-3.5 h-3.5 text-rose-600" /> Tautan Terlampir ({allLinks.length}):
+                            </span>
+                            {allLinks.map((lnk, lIdx) => (
+                              <button
+                                key={lIdx}
+                                type="button"
+                                onClick={() =>
+                                  setMediaModal({
+                                    isOpen: true,
+                                    url: lnk,
+                                    title: `Link #${lIdx + 1} - ${t.judul}`,
+                                    category: 'Tautan Tugas Murid',
+                                  })
+                                }
+                                className="text-rose-600 hover:underline flex items-center gap-1.5 font-semibold truncate text-left text-xs w-full cursor-pointer"
+                                title="Buka tautan di aplikasi"
+                              >
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                                <span className="truncate">#{lIdx + 1}: {lnk}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Multiple files / single file */}
+                      {(() => {
+                        const allFiles = Array.isArray(submission.files) && submission.files.length > 0
+                          ? submission.files
+                          : submission.fileUrl
+                          ? [{ name: submission.namaFile || 'Berkas Lampiran', url: submission.fileUrl, type: 'document' }]
+                          : [];
+                        if (allFiles.length === 0) return null;
+                        return (
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                              <FileText className="w-3.5 h-3.5 text-sky-600" /> Berkas / Foto Praktik ({allFiles.length}):
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {allFiles.map((f, fIdx) => (
+                                <button
+                                  key={fIdx}
+                                  type="button"
+                                  onClick={() =>
+                                    setMediaModal({
+                                      isOpen: true,
+                                      url: f.url,
+                                      title: `${f.name || `Berkas #${fIdx + 1}`} - ${t.judul}`,
+                                      category: 'Dokumen / Foto Praktik',
+                                    })
+                                  }
+                                  className="px-2.5 py-1 bg-sky-100 text-sky-800 hover:bg-sky-200 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                >
+                                  {f.type === 'image' || (f.url && f.url.startsWith('data:image')) ? (
+                                    <Image className="w-3.5 h-3.5 shrink-0" />
+                                  ) : (
+                                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                                  )}
+                                  <span className="truncate max-w-[140px]">{f.name || `Berkas #${fIdx + 1}`}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {(submission.catatanMurid || submission.catatanSiswa) && (
                         <p className="text-slate-600 text-[11px] italic">
                           Catatan: "{submission.catatanMurid || submission.catatanSiswa}"
@@ -841,51 +981,89 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
                 activeUploadTugas.jenisPengumpulan === 'Dokumen') && (
                 <div className="space-y-3 pt-2 border-t border-slate-100">
                   <div>
-                    <label className="block font-bold text-slate-800 uppercase mb-1.5 flex items-center gap-1.5">
-                      <FileUp className="w-3.5 h-3.5 text-sky-600" />
-                      Upload Berkas Tugas (Foto Praktik / Dokumen PDF)
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="font-bold text-slate-800 uppercase flex items-center gap-1.5 text-xs">
+                        <FileUp className="w-3.5 h-3.5 text-sky-600" />
+                        Upload Foto Praktik / Dokumen PDF (Boleh Lebih Dari 1)
+                      </label>
+                      {uploadedFiles.length > 0 && (
+                        <span className="px-2 py-0.5 bg-sky-100 text-sky-800 rounded-full text-[10px] font-extrabold">
+                          {uploadedFiles.length} Berkas Dipilih
+                        </span>
+                      )}
+                    </div>
 
-                    {uploadedFile ? (
-                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                            {uploadedFile.type === 'image' ? (
-                              <Image className="w-4 h-4" />
-                            ) : (
-                              <FileText className="w-4 h-4" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-xs text-emerald-950 truncate">
-                              {uploadedFile.name}
-                            </p>
-                            <span className="text-[10px] text-emerald-700">Berkas siap dikirim</span>
-                          </div>
+                    {uploadedFiles.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 bg-slate-50 rounded-2xl border border-slate-200">
+                          {uploadedFiles.map((file, fIdx) => (
+                            <div
+                              key={file.id || fIdx}
+                              className="p-2.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-2 shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center shrink-0 overflow-hidden">
+                                  {file.type === 'image' || file.url.startsWith('data:image') ? (
+                                    <img
+                                      src={file.url}
+                                      alt={file.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <FileText className="w-4 h-4" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-xs text-slate-900 truncate">
+                                    {file.name}
+                                  </p>
+                                  <span className="text-[10px] text-slate-400">
+                                    Foto/Berkas #{fIdx + 1}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveFile(file.id)}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                                title="Hapus foto/berkas ini"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setUploadedFile(null);
-                            setLinkDokumen('');
-                          }}
-                          className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg"
-                          title="Hapus Berkas"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+
+                        {/* Tombol Tambahkan Foto / Berkas Tambahan */}
+                        <div className="flex items-center justify-between pt-1">
+                          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-bold transition-colors cursor-pointer">
+                            <Plus className="w-3.5 h-3.5 text-sky-600" />
+                            <span>+ Tambah Foto / Gambar / Berkas Lagi</span>
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*,application/pdf,.doc,.docx"
+                              onChange={handleFileUpload}
+                              className="hidden"
+                            />
+                          </label>
+                          <span className="text-[10px] text-slate-400">
+                            Mendukung multi-upload JPG, PNG, PDF
+                          </span>
+                        </div>
                       </div>
                     ) : (
-                      <label className="border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-2xl p-4 flex flex-col items-center justify-center gap-1 cursor-pointer bg-slate-50/50 hover:bg-emerald-50/30 transition-all text-center">
-                        <Upload className="w-5 h-5 text-slate-400" />
-                        <span className="text-xs font-bold text-slate-700">
-                          Pilih Foto Praktik atau File PDF
+                      <label className="border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-2xl p-5 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-slate-50/50 hover:bg-emerald-50/30 transition-all text-center">
+                        <Upload className="w-6 h-6 text-slate-400" />
+                        <span className="text-xs font-bold text-slate-800">
+                          Pilih Foto Praktik atau File PDF (Boleh Lebih Dari 1)
                         </span>
                         <span className="text-[10px] text-slate-400">
-                          Mendukung file JPG, PNG, PDF (Maksimal 15MB)
+                          Mendukung memilih sekaligus banyak foto JPG, PNG, atau dokumen PDF (Maks. 15MB/file)
                         </span>
                         <input
                           type="file"
+                          multiple
                           accept="image/*,application/pdf,.doc,.docx"
                           onChange={handleFileUpload}
                           className="hidden"
@@ -894,19 +1072,57 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
                     )}
                   </div>
 
-                  {/* Link Video Olahraga */}
-                  <div>
-                    <label className="block font-bold text-slate-700 uppercase mb-1 flex items-center gap-1.5">
-                      <Video className="w-3.5 h-3.5 text-rose-600" />
-                      Link Video Olahraga (YouTube / Google Drive) - Opsional
-                    </label>
-                    <input
-                      type="text"
-                      value={linkVideo}
-                      onChange={(e) => setLinkVideo(e.target.value)}
-                      placeholder="https://youtu.be/... atau https://drive.google.com/file/d/..."
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl"
-                    />
+                  {/* Link Video / Google Drive (Boleh lebih dari 1 dengan tombol Tambahkan) */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-slate-700 uppercase flex items-center gap-1.5 text-xs">
+                        <Video className="w-3.5 h-3.5 text-rose-600" />
+                        Tautan Video / Google Drive (Boleh Kirim Lebih Dari 1)
+                      </label>
+                      {links.filter((l) => l.trim().length > 0).length > 0 && (
+                        <span className="px-2 py-0.5 bg-rose-50 text-rose-800 rounded-full text-[10px] font-extrabold">
+                          {links.filter((l) => l.trim().length > 0).length} Tautan
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {links.map((linkVal, lIdx) => (
+                        <div key={lIdx} className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              value={linkVal}
+                              onChange={(e) => handleLinkChange(lIdx, e.target.value)}
+                              placeholder={`Link #${lIdx + 1}: https://youtu.be/... atau https://drive.google.com/...`}
+                              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20"
+                            />
+                          </div>
+                          {links.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveLink(lIdx)}
+                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer shrink-0"
+                              title="Hapus tautan ini"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Tombol Tambahkan Link Sesuai Permintaan User */}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={handleAddLink}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-xl font-bold text-xs transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-slate-600" />
+                        <span>Tambahkan Link Lainnya</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
