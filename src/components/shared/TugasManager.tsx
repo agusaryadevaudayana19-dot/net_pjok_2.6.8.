@@ -1133,8 +1133,26 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
 
       {/* Add / Edit Tugas Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl relative my-8">
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-2xs p-3 sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="min-h-full flex items-start justify-center py-4 sm:py-8"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setIsModalOpen(false);
+              }
+            }}
+          >
+            <div
+              className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
             <button
               onClick={() => setIsModalOpen(false)}
               className="absolute top-5 right-5 text-slate-400 hover:text-slate-600"
@@ -1504,6 +1522,7 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
             </form>
           </div>
         </div>
+      </div>
       )}
 
       {/* In-App Media Viewer Modal */}

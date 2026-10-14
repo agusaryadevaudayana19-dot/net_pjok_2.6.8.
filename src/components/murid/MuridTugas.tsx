@@ -41,6 +41,15 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
 
   const openedInitialIdRef = React.useRef<string | null>(null);
   const dismissedInitialIdRef = React.useRef<string | null>(null);
+  const uploadModalContainerRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (activeUploadTugas) {
+      if (uploadModalContainerRef.current) {
+        uploadModalContainerRef.current.scrollTop = 0;
+      }
+    }
+  }, [activeUploadTugas]);
 
   const handleCloseModal = () => {
     if (initialTugasId) {
@@ -587,14 +596,26 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
       {/* Upload Submission Modal */}
       {activeUploadTugas && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-2xs p-4 overflow-y-auto"
+          ref={uploadModalContainerRef}
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-2xs p-3 sm:p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               handleCloseModal();
             }
           }}
         >
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl relative my-8">
+          <div
+            className="min-h-full flex items-start justify-center py-4 sm:py-8"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                handleCloseModal();
+              }
+            }}
+          >
+            <div
+              className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
             <button
               onClick={handleCloseModal}
               className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -923,6 +944,7 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
             </form>
           </div>
         </div>
+      </div>
       )}
 
       {/* Modal Konfirmasi Khusus Pengumpulan Tugas (Pencegahan Salah Kirim) */}

@@ -72,118 +72,119 @@ function calculatePredikat(avg: number): 'Sangat Baik' | 'Baik' | 'Cukup' | 'Per
   return 'Perlu Bimbingan';
 }
 
-export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
+// -------------------------------------------------------------
+// VIEW KHUSUS MURID: HANYA MELIHAT HASIL DARI GURU
+// -------------------------------------------------------------
+const MuridPenilaianSikapView: React.FC<{ db: LMSDatabase; currentUser: User }> = ({
+  db,
+  currentUser,
+}) => {
+  const myAssessment = (db.penilaianSikap || []).find((s) => s.muridId === currentUser.id);
+
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" /> Hasil Resmi Guru PJOK
+          </span>
+          <span className="text-xs text-slate-400 font-semibold">• Profil Pelajar Pancasila</span>
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+          Penilaian Sikap & Karakter
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+          Halaman ini menampilkan rekapitulasi penilaian sikap, karakter sportivitas, gotong royong, dan kedisiplinan Anda selama mengikuti pembelajaran PJOK sesuai asesmen Guru.
+        </p>
+      </div>
+
+      {!myAssessment ? (
+        <div className="bg-white rounded-3xl p-10 border border-slate-200/80 text-center space-y-3">
+          <HeartHandshake className="w-12 h-12 text-slate-300 mx-auto" />
+          <h2 className="text-base font-extrabold text-slate-700">Belum Ada Hasil Penilaian Sikap</h2>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Penilaian sikap semester ini sedang diobservasi oleh Guru PJOK. Nilai dan umpan balik karakter Anda akan tampil otomatis di sini setelah diinput oleh guru.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Overview Card */}
+          <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-6 sm:p-8 text-white shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-bold text-emerald-200 uppercase tracking-wider">
+                  Predikat Sikap Keseluruhan
+                </span>
+                <div className="text-3xl sm:text-4xl font-black mt-1 flex items-center gap-3">
+                  <span>{myAssessment.predikat}</span>
+                  <span className="text-lg font-bold bg-white/20 px-3 py-0.5 rounded-full text-emerald-100">
+                    Rata-rata: {myAssessment.rataRata?.toFixed(2) || '4.00'} / 4.0
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-left sm:text-right text-xs text-emerald-100 space-y-1">
+                <p>Dinilai oleh: <strong className="text-white font-bold">{myAssessment.guruNama || 'Guru PJOK'}</strong></p>
+                <p>Tanggal Evaluasi: <strong className="text-white font-semibold">{myAssessment.tanggal}</strong></p>
+              </div>
+            </div>
+          </div>
+
+          {/* Aspek Breakdown */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
+            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <Star className="w-5 h-5 text-amber-500" />
+              Rincian Aspek Sikap & Perilaku
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {ASPEK_SIKAP_CONFIG.map((aspek) => {
+                const val = myAssessment[aspek.key] || 4;
+                const meta = SKOR_SIKAP_LABEL[val] || SKOR_SIKAP_LABEL[4];
+
+                return (
+                  <div
+                    key={aspek.key}
+                    className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-extrabold text-xs text-slate-900">{aspek.label}</h3>
+                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${meta.badge}`}>
+                        {meta.text}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">{aspek.desc}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Teacher Notes / Catatan Guru */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-3">
+            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-emerald-600" />
+              Catatan Perkembangan & Umpan Balik Guru
+            </h2>
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs text-slate-700 leading-relaxed font-medium">
+              {myAssessment.catatanGuru ||
+                'Peserta didik menunjukkan sikap sportivitas yang sangat baik, selalu disiplin, serta aktif bekerja sama secara harmonis dalam setiap kegiatan olahraga.'}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// -------------------------------------------------------------
+// VIEW GURU & ADMIN: INPUT & MANAJEMEN PENILAIAN SIKAP
+// -------------------------------------------------------------
+const GuruAdminPenilaianSikapView: React.FC<PenilaianSikapManagerProps> = ({
   db,
   currentUser,
   initialTab,
 }) => {
-  const isMurid = currentUser.role === 'MURID';
-
-  // -------------------------------------------------------------
-  // VIEW KHUSUS MURID: HANYA MELIHAT HASIL DARI GURU
-  // -------------------------------------------------------------
-  if (isMurid) {
-    const myAssessment = (db.penilaianSikap || []).find((s) => s.muridId === currentUser.id);
-
-    return (
-      <div className="space-y-6 max-w-4xl mx-auto">
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" /> Hasil Resmi Guru PJOK
-            </span>
-            <span className="text-xs text-slate-400 font-semibold">• Profil Pelajar Pancasila</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            Penilaian Sikap & Karakter
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-            Halaman ini menampilkan rekapitulasi penilaian sikap, karakter sportivitas, gotong royong, dan kedisiplinan Anda selama mengikuti pembelajaran PJOK sesuai asesmen Guru.
-          </p>
-        </div>
-
-        {!myAssessment ? (
-          <div className="bg-white rounded-3xl p-10 border border-slate-200/80 text-center space-y-3">
-            <HeartHandshake className="w-12 h-12 text-slate-300 mx-auto" />
-            <h2 className="text-base font-extrabold text-slate-700">Belum Ada Hasil Penilaian Sikap</h2>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Penilaian sikap semester ini sedang diobservasi oleh Guru PJOK. Nilai dan umpan balik karakter Anda akan tampil otomatis di sini setelah diinput oleh guru.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Overview Card */}
-            <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-6 sm:p-8 text-white shadow-lg space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <span className="text-xs font-bold text-emerald-200 uppercase tracking-wider">
-                    Predikat Sikap Keseluruhan
-                  </span>
-                  <div className="text-3xl sm:text-4xl font-black mt-1 flex items-center gap-3">
-                    <span>{myAssessment.predikat}</span>
-                    <span className="text-lg font-bold bg-white/20 px-3 py-0.5 rounded-full text-emerald-100">
-                      Rata-rata: {myAssessment.rataRata?.toFixed(2) || '4.00'} / 4.0
-                    </span>
-                  </div>
-                </div>
-
-                <div className="text-left sm:text-right text-xs text-emerald-100 space-y-1">
-                  <p>Dinilai oleh: <strong className="text-white font-bold">{myAssessment.guruNama || 'Guru PJOK'}</strong></p>
-                  <p>Tanggal Evaluasi: <strong className="text-white font-semibold">{myAssessment.tanggal}</strong></p>
-                </div>
-              </div>
-            </div>
-
-            {/* Aspek Breakdown */}
-            <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
-              <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <Star className="w-5 h-5 text-amber-500" />
-                Rincian Aspek Sikap & Perilaku
-              </h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {ASPEK_SIKAP_CONFIG.map((aspek) => {
-                  const val = myAssessment[aspek.key] || 4;
-                  const meta = SKOR_SIKAP_LABEL[val] || SKOR_SIKAP_LABEL[4];
-
-                  return (
-                    <div
-                      key={aspek.key}
-                      className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-2"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-extrabold text-xs text-slate-900">{aspek.label}</h3>
-                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${meta.badge}`}>
-                          {meta.text}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">{aspek.desc}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Teacher Notes / Catatan Guru */}
-            <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-3">
-              <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-600" />
-                Catatan Perkembangan & Umpan Balik Guru
-              </h2>
-              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs text-slate-700 leading-relaxed font-medium">
-                {myAssessment.catatanGuru ||
-                  'Peserta didik menunjukkan sikap sportivitas yang sangat baik, selalu disiplin, serta aktif bekerja sama secara harmonis dalam setiap kegiatan olahraga.'}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------
-  // VIEW GURU & ADMIN: INPUT & MANAJEMEN PENILAIAN SIKAP
-  // -------------------------------------------------------------
   const availableClasses = useMemo(() => {
     if (currentUser.role === 'GURU') {
       const assigned = getTeacherAssignedClasses(currentUser, db.kelas);
@@ -1380,5 +1381,22 @@ export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
         </div>
       )}
     </div>
+  );
+};
+
+export const PenilaianSikapManager: React.FC<PenilaianSikapManagerProps> = ({
+  db,
+  currentUser,
+  initialTab,
+}) => {
+  if (currentUser.role === 'MURID') {
+    return <MuridPenilaianSikapView db={db} currentUser={currentUser} />;
+  }
+  return (
+    <GuruAdminPenilaianSikapView
+      db={db}
+      currentUser={currentUser}
+      initialTab={initialTab}
+    />
   );
 };

@@ -30,8 +30,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   currentUserId,
   settings,
 }) => {
-  if (!isOpen) return null;
-
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,6 +39,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [showMustInstallModal, setShowMustInstallModal] = useState(false);
 
   const { isInstalled } = usePWAInstall();
+
+  if (!isOpen) return null;
 
   const db = dataStorage.getDatabase();
   const schoolName = settings?.namaSekolah || db.settings?.namaSekolah || 'SMA Negeri 1 Tejakula';
