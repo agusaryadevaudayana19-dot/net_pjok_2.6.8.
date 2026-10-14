@@ -14,7 +14,7 @@ import {
   Download,
   Eye,
 } from 'lucide-react';
-import { Materi, User } from '../../types';
+import { Materi, User, isItemAssignedToStudentClass } from '../../types';
 import { LMSDatabase } from '../../services/dataStorage';
 import { InAppMediaModal, parseMediaUrl } from '../shared/InAppMediaModal';
 import { FormattedMateriText } from '../shared/FormattedMateriText';
@@ -96,15 +96,24 @@ export const MuridMateri: React.FC<MuridMateriProps> = ({ db, currentUser, initi
 
   const getCategoryCount = (cat: string) => {
     if (cat === 'Semua') {
-      return (db.materi || []).filter((m) => m.status === 'Publish' || !m.status).length;
+      return (db.materi || []).filter(
+        (m) =>
+          (m.status === 'Publish' || !m.status) &&
+          isItemAssignedToStudentClass(m, currentUser, db.kelas)
+      ).length;
     }
     return (db.materi || []).filter(
-      (m) => (m.status === 'Publish' || !m.status) && isMateriCategoryMatch(m, cat)
+      (m) =>
+        (m.status === 'Publish' || !m.status) &&
+        isItemAssignedToStudentClass(m, currentUser, db.kelas) &&
+        isMateriCategoryMatch(m, cat)
     ).length;
   };
 
   const filteredMateri = (db.materi || []).filter((m) => {
     if (m.status && m.status !== 'Publish') return false;
+    // Strict class filter: student only sees materials assigned to their class
+    if (!isItemAssignedToStudentClass(m, currentUser, db.kelas)) return false;
     const matchCat = isMateriCategoryMatch(m, selectedKategori);
     const matchQuery =
       !searchQuery.trim() ||

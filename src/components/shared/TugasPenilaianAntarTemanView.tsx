@@ -21,6 +21,7 @@ import {
   User,
   StatusTugasPenilaian,
   PenilaianTemanSejawat,
+  isItemAssignedToStudentClass,
 } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 
@@ -52,7 +53,7 @@ export const TugasPenilaianAntarTemanView: React.FC<TugasPenilaianAntarTemanView
   const filteredTasks = allTasks.filter((task) => {
     if (isMurid) {
       // Murid only sees tasks assigned to their class, and only AKTIF or SELESAI
-      if (currentUser.kelasId && !task.kelasIds.includes(currentUser.kelasId)) {
+      if (!isItemAssignedToStudentClass(task, currentUser, db.kelas)) {
         return false;
       }
       if (task.status === 'DRAF') return false;

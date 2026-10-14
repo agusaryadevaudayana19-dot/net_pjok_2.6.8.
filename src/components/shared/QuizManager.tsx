@@ -37,6 +37,7 @@ import { Quiz, Soal, JawabanQuiz, User, NotifikasiItem, getTeacherAssignedClasse
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { UploadDataModal } from './UploadDataModal';
 import { InAppQuizViewerModal } from './InAppQuizViewerModal';
+import { KelasTargetSelector } from './KelasTargetSelector';
 
 interface QuizManagerProps {
   db: LMSDatabase;
@@ -194,9 +195,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
 
     const matchKelas =
       selectedKelasId === 'Semua' ||
-      !q.kelasIds ||
-      q.kelasIds.length === 0 ||
-      q.kelasIds.includes(selectedKelasId);
+      (Array.isArray(q.kelasIds) && q.kelasIds.length > 0
+        ? q.kelasIds.includes(selectedKelasId)
+        : q.kelasId === selectedKelasId || !q.kelasId);
 
     // If teacher, only show quizzes for their assigned classes or general
     if (currentUser?.role === 'GURU') {
@@ -266,6 +267,11 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
 
   const handleOpenAdd = () => {
     setEditingQuiz(null);
+    const initialClasses =
+      selectedKelasId && selectedKelasId !== 'Semua'
+        ? [selectedKelasId]
+        : availableClasses.map((k) => k.id);
+
     setForm({
       judul: '',
       materiJudul: db.materi[0]?.judul || 'Materi PJOK',
@@ -281,7 +287,7 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
       gunakanTokenKeluar: false,
       tokenKeluar: '',
       waktuMunculTokenKeluarMenit: 10,
-      kelasIds: availableClasses.map((k) => k.id),
+      kelasIds: initialClasses,
       soal: [
         {
           id: `soal-${Date.now()}`,
@@ -319,7 +325,7 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
       zonaWaktu: q.zonaWaktu || 'WITA',
       modeJadwal: q.modeJadwal || 'serentak',
       durasiMenit: q.durasiMenit || 20,
-      kelasIds: q.kelasIds || (q.kelasId ? [q.kelasId] : availableClasses.map((k) => k.id)),
+      kelasIds: q.kelasIds && q.kelasIds.length > 0 ? q.kelasIds : (q.kelasId ? [q.kelasId] : availableClasses.map((k) => k.id)),
       soal: existingQuestions,
     });
     setIsModalOpen(true);
@@ -331,6 +337,17 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
       alert('Judul quiz harus diisi');
       return;
     }
+
+    if (!form.kelasIds || form.kelasIds.length === 0) {
+      alert('Harap pilih minimal 1 target kelas / rombel untuk kuis/ujian ini!');
+      return;
+    }
+
+    const selectedClassObjs = (db.kelas || []).filter((k) => form.kelasIds?.includes(k.id));
+    const selectedClassNames = selectedClassObjs.map((k) => k.nama);
+    const primaryKelasId = form.kelasIds[0] || '';
+    const primaryKelasNama = selectedClassNames.join(', ');
+    const isAllClasses = form.kelasIds.length === availableClasses.length;
 
     const currentQuestions = (form.soal || []).map((s, idx) => ({
       ...s,
@@ -351,6 +368,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
             ? ({
                 ...item,
                 ...form,
+                kelasIds: form.kelasIds,
+                kelasId: primaryKelasId,
+                kelasNama: primaryKelasNama,
                 kunciMasuk: cleanKunciMasuk,
                 gunakanTokenKeluar: Boolean(cleanTokenKeluar),
                 tokenKeluar: cleanTokenKeluar,
@@ -374,7 +394,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
           dibaca: false,
           targetRole: 'MURID',
           targetId: editingQuiz.id,
-          targetKelasId: form.kelasIds && form.kelasIds.length === 1 ? form.kelasIds[0] : 'ALL',
+          targetKelasId: isAllClasses ? 'ALL' : (form.kelasIds.length === 1 ? form.kelasIds[0] : undefined),
+          targetKelasIds: isAllClasses ? ['ALL'] : form.kelasIds,
+          targetKelasNama: primaryKelasNama,
         };
         dataStorage.pushNotifikasi(notif);
       }
@@ -396,7 +418,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
         gunakanTokenKeluar: Boolean(cleanTokenKeluar),
         tokenKeluar: cleanTokenKeluar,
         waktuMunculTokenKeluarMenit: cleanWaktuMuncul,
-        kelasIds: form.kelasIds && form.kelasIds.length > 0 ? form.kelasIds : availableClasses.map((k) => k.id),
+        kelasIds: form.kelasIds,
+        kelasId: primaryKelasId,
+        kelasNama: primaryKelasNama,
         status: finalStatus,
         statusPublikasi: finalStatus,
         dibuatOleh: currentUser.name,
@@ -419,7 +443,9 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
           dibaca: false,
           targetRole: 'MURID',
           targetId: newQ.id,
-          targetKelasId: newQ.kelasIds && newQ.kelasIds.length === 1 ? newQ.kelasIds[0] : 'ALL',
+          targetKelasId: isAllClasses ? 'ALL' : (form.kelasIds.length === 1 ? form.kelasIds[0] : undefined),
+          targetKelasIds: isAllClasses ? ['ALL'] : form.kelasIds,
+          targetKelasNama: primaryKelasNama,
         };
         dataStorage.pushNotifikasi(notif);
       }
@@ -1310,32 +1336,14 @@ export const QuizManager: React.FC<QuizManagerProps> = ({ db, currentUser, initi
               </div>
 
               {/* Target Kelas Selection */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1.5 text-xs">Target Kelas / Rombel</label>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 max-h-28 overflow-y-auto">
-                  {availableClasses.map((k) => {
-                    const isChecked = form.kelasIds?.includes(k.id) ?? false;
-                    return (
-                      <label key={k.id} className="flex items-center gap-1.5 cursor-pointer text-[11px]">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const cur = form.kelasIds || [];
-                            if (e.target.checked) {
-                              setForm({ ...form, kelasIds: [...cur, k.id] });
-                            } else {
-                              setForm({ ...form, kelasIds: cur.filter((id) => id !== k.id) });
-                            }
-                          }}
-                          className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                        />
-                        <span className="font-semibold text-slate-700">Kelas {k.nama}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+              <KelasTargetSelector
+                availableClasses={availableClasses}
+                selectedClassIds={form.kelasIds || []}
+                onChange={(ids) => setForm({ ...form, kelasIds: ids })}
+                accentColor="purple"
+                label="Target Kelas / Rombel Kuis & Ujian"
+                helperText="Centang rombel yang ditugaskan ujian ini. Murid dari rombel yang tidak dicentang tidak akan melihat kuis ini."
+              />
 
               {/* Toggles */}
               <div className="flex flex-wrap gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">

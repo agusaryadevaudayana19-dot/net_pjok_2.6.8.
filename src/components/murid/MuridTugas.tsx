@@ -20,7 +20,7 @@ import {
   HelpCircle,
   AlertTriangle,
 } from 'lucide-react';
-import { Tugas, PengumpulanTugas, User } from '../../types';
+import { Tugas, PengumpulanTugas, User, isItemAssignedToStudentClass } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { InAppMediaModal } from '../shared/InAppMediaModal';
 import { parseDeadlineToDate, formatTimeRemaining, formatDeadlineIndo } from '../../utils/deadlineNotification';
@@ -119,9 +119,11 @@ export const MuridTugas: React.FC<MuridTugasProps> = ({ db, currentUser, initial
     return 'dikumpulkan';
   };
 
-  const filteredTugas = db.tugas.filter((t) => {
+  const filteredTugas = (db.tugas || []).filter((t) => {
     if (t.status === 'Draft' || t.statusPublikasi === 'Draft') return false;
     if (t.status !== 'Publish' && t.status !== 'Aktif' && t.statusPublikasi !== 'Publish') return false;
+    // Strict class filter: student only sees tasks explicitly assigned to their class
+    if (!isItemAssignedToStudentClass(t, currentUser, db.kelas)) return false;
     const st = getTugasStatus(t.id);
     if (filterStatus === 'semua') return true;
     return st === filterStatus;

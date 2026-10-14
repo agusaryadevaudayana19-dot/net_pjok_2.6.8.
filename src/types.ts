@@ -614,7 +614,9 @@ export interface NotifikasiItem {
   targetRole?: UserRole | 'ALL';
   targetMuridId?: string;
   targetKelasId?: string;
+  targetKelasIds?: string[];
   targetKelasNama?: string;
+  targetKelasNamas?: string[];
   targetId?: string;
   targetMenu?: string;
   isUrgentDeadline?: boolean;
@@ -772,6 +774,96 @@ export function resolveKelasId(
   // 5. Fallback
   const fallback = allKelas.find((k) => k.id === fallbackId) || allKelas[0];
   return { id: fallback.id, nama: fallback.nama };
+}
+
+/**
+ * Universal, rock-solid helper to check whether a task, material, quiz, announcement,
+ * or notification is assigned to a specific student based on their class (rombel).
+ * Supports ID and name normalization, multi-class array targets, and single target fallbacks.
+ */
+export function isItemAssignedToStudentClass(
+  item: {
+    kelasIds?: string[];
+    kelasId?: string;
+    kelasNama?: string;
+    targetKelasIds?: string[];
+    targetKelasId?: string;
+    targetKelasNama?: string;
+    targetKelasNamas?: string[];
+  } | null | undefined,
+  studentOrKelasId: User | string | null | undefined,
+  allKelas: Kelas[] = []
+): boolean {
+  if (!item) return false;
+
+  // Non-student accounts (e.g. Guru, Admin) are not filtered out by student class assignments
+  if (typeof studentOrKelasId === 'object' && studentOrKelasId !== null) {
+    if (studentOrKelasId.role && studentOrKelasId.role !== 'MURID') {
+      return true;
+    }
+  }
+
+  const rawStudentClass = typeof studentOrKelasId === 'string'
+    ? studentOrKelasId
+    : (studentOrKelasId?.kelasId || '');
+
+  if (!rawStudentClass || !rawStudentClass.trim()) {
+    return false;
+  }
+
+  const resolved = resolveKelasId(rawStudentClass, allKelas);
+  const studentId = (resolved.id || '').toLowerCase().trim();
+  const studentNama = (resolved.nama || '').toLowerCase().trim();
+  const rawLower = rawStudentClass.toLowerCase().trim();
+
+  const isTargetMatch = (target: string | undefined | null): boolean => {
+    if (!target) return false;
+    const clean = target.trim().toLowerCase();
+    if (clean === 'all' || clean === 'semua' || clean === 'semua rombel' || clean === 'all rombel') {
+      return true;
+    }
+    if (studentId && clean === studentId) return true;
+    if (studentNama && clean === studentNama) return true;
+    if (clean === rawLower) return true;
+
+    // Cross-match ID to Name if one side has ID and other side has Name
+    const foundK = allKelas.find((k) => k.id.toLowerCase() === clean || k.nama.toLowerCase() === clean);
+    if (foundK) {
+      if (studentId && foundK.id.toLowerCase() === studentId) return true;
+      if (studentNama && foundK.nama.toLowerCase() === studentNama) return true;
+    }
+    return false;
+  };
+
+  // 1. Array of classes target (kelasIds or targetKelasIds)
+  const arrayTargets = item.targetKelasIds || item.kelasIds;
+  if (Array.isArray(arrayTargets) && arrayTargets.length > 0) {
+    if (arrayTargets.some((target) => isTargetMatch(target))) {
+      return true;
+    }
+    if (Array.isArray(item.targetKelasNamas) && item.targetKelasNamas.length > 0) {
+      if (item.targetKelasNamas.some((nama) => isTargetMatch(nama))) {
+        return true;
+      }
+    }
+    // Specific classes were chosen and this student is NOT in any of them!
+    return false;
+  }
+
+  // 2. Single target ID
+  const singleId = item.targetKelasId || item.kelasId;
+  if (singleId && singleId.trim()) {
+    return isTargetMatch(singleId);
+  }
+
+  // 3. Single target Name
+  const singleName = item.targetKelasNama || item.kelasNama;
+  if (singleName && singleName.trim()) {
+    return isTargetMatch(singleName);
+  }
+
+  // 4. Default if no class restrictions were set at all
+  return true;
 }
 
 export type ActivityLogCategory =

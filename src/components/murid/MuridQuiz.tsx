@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Quiz, Soal, User } from '../../types';
+import { Quiz, Soal, User, isItemAssignedToStudentClass } from '../../types';
 import { LMSDatabase, dataStorage } from '../../services/dataStorage';
 import {
   HelpCircle,
@@ -576,6 +576,8 @@ export function MuridQuiz({ currentUser, db, initialQuizId, onClearParam }: Muri
                 const pub = (q.statusPublikasi as string) || '';
                 if (status === 'Draft' || pub === 'Draft' || status === 'Arsip') return false;
                 if (status && status !== 'Publish' && status !== 'Aktif' && pub !== 'Publish') return false;
+                // Strict class filter: student only sees quizzes assigned to their class
+                if (!isItemAssignedToStudentClass(q, currentUser, db.kelas)) return false;
                 return true;
               })
               .map((q) => {

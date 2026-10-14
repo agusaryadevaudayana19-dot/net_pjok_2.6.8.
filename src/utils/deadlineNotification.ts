@@ -1,4 +1,4 @@
-import { User, Tugas, Quiz, NotifikasiItem } from '../types';
+import { User, Tugas, Quiz, NotifikasiItem, isItemAssignedToStudentClass } from '../types';
 import { LMSDatabase, dataStorage } from '../services/dataStorage';
 
 export interface DeadlineAlertItem {
@@ -94,16 +94,14 @@ export function formatDeadlineIndo(date: Date): string {
 export function isAssignedToStudent(
   itemKelasIds?: string[],
   itemKelasId?: string,
-  studentKelasId?: string
+  studentKelasId?: string,
+  allKelas: any[] = []
 ): boolean {
-  if (!studentKelasId) return true;
-  if (Array.isArray(itemKelasIds) && itemKelasIds.length > 0) {
-    return itemKelasIds.includes(studentKelasId) || itemKelasIds.includes('ALL');
-  }
-  if (itemKelasId) {
-    return itemKelasId === studentKelasId || itemKelasId === 'ALL';
-  }
-  return true;
+  return isItemAssignedToStudentClass(
+    { kelasIds: itemKelasIds, kelasId: itemKelasId },
+    studentKelasId,
+    allKelas
+  );
 }
 
 /**
@@ -119,7 +117,6 @@ export function getStudentUrgentDeadlines(
   const now = new Date();
   const nowMs = now.getTime();
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-  const studentKelasId = currentUser.kelasId || (db.kelas && db.kelas[0]?.id) || '';
 
   const alerts: DeadlineAlertItem[] = [];
 
@@ -142,7 +139,7 @@ export function getStudentUrgentDeadlines(
     if (!isPublished) return;
 
     // Check class assignment
-    if (!isAssignedToStudent(t.kelasIds, t.kelasId, studentKelasId)) return;
+    if (!isItemAssignedToStudentClass(t, currentUser, db.kelas)) return;
 
     // Check if already completed
     if (submittedTugasIds.has(t.id)) return;
@@ -193,7 +190,7 @@ export function getStudentUrgentDeadlines(
     if (q.status === 'Draft' || q.statusPublikasi === 'Draft' || q.status === 'Arsip') return;
 
     // Check class assignment
-    if (!isAssignedToStudent(q.kelasIds, q.kelasId, studentKelasId)) return;
+    if (!isItemAssignedToStudentClass(q, currentUser, db.kelas)) return;
 
     // Check if already completed
     if (completedQuizIds.has(q.id)) return;

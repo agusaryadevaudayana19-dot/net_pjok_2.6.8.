@@ -17,7 +17,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { LMSDatabase } from '../../services/dataStorage';
-import { User } from '../../types';
+import { User, isItemAssignedToStudentClass } from '../../types';
 
 interface MuridDashboardProps {
   db: LMSDatabase;
@@ -29,25 +29,23 @@ export const MuridDashboard: React.FC<MuridDashboardProps> = ({ db, currentUser,
   const myKelasId = currentUser.kelasId || (db.kelas && db.kelas[0]?.id) || '';
   const kelasObj = (db.kelas || []).find((k) => k.id === myKelasId);
 
-  // Filter student's materials
-  const materiAktif = (db.materi || []).filter((m) => m.status === 'Publish');
+  // Filter student's materials strictly assigned to their class
+  const materiAktif = (db.materi || []).filter(
+    (m) =>
+      (m.status === 'Publish' || !m.status) &&
+      isItemAssignedToStudentClass(m, currentUser, db.kelas)
+  );
+
   const tugasList = (db.tugas || []).filter((t) => {
     if (t.status !== 'Publish' && t.status !== 'Aktif' && t.statusPublikasi !== 'Publish') return false;
-    if (t.kelasIds && t.kelasIds.length > 0) {
-      return t.kelasIds.includes(myKelasId);
-    }
-    if (t.kelasId) {
-      return t.kelasId === myKelasId;
-    }
-    return true;
+    return isItemAssignedToStudentClass(t, currentUser, db.kelas);
   });
   const pengumpulanSaya = (db.pengumpulanTugas || []).filter((p) => p.muridId === currentUser.id);
 
   // Filter relevant announcements for student
   const relevantPengumuman = (db.pengumuman || []).filter((p) => {
-    if (!p.targetKelas || p.targetKelas === 'SEMUA') return true;
-    return p.targetKelas === myKelasId;
-  }).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    return isItemAssignedToStudentClass(p, currentUser, db.kelas);
+  }).sort((a, b) => new Date((b as any).createdAt || (b as any).tanggalDibuat || 0).getTime() - new Date((a as any).createdAt || (a as any).tanggalDibuat || 0).getTime());
 
   // Unfinished tasks with deadline calculation
   const now = new Date();
@@ -75,8 +73,14 @@ export const MuridDashboard: React.FC<MuridDashboardProps> = ({ db, currentUser,
     .sort((a, b) => a.deadlineDate.getTime() - b.deadlineDate.getTime());
   const tugasBaru = tugasBelum.slice(0, 3);
 
-  // Active quiz
-  const quizAktif = db.quiz || [];
+  // Active quiz assigned strictly to student's class
+  const quizAktif = (db.quiz || []).filter((q) => {
+    const status = (q.status as string) || '';
+    const pub = (q.statusPublikasi as string) || '';
+    if (status === 'Draft' || pub === 'Draft' || status === 'Arsip') return false;
+    if (status && status !== 'Publish' && status !== 'Aktif' && pub !== 'Publish') return false;
+    return isItemAssignedToStudentClass(q, currentUser, db.kelas);
+  });
 
   // Active reflections from teachers
   const myRefleksiList = (db.refleksi || []).filter((r) => {

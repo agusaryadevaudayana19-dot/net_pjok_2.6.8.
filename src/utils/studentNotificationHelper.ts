@@ -1,5 +1,5 @@
 import { LMSDatabase, dataStorage } from '../services/dataStorage';
-import { User, PendampinganMuridRecord, NotifikasiItem } from '../types';
+import { User, PendampinganMuridRecord, NotifikasiItem, isItemAssignedToStudentClass } from '../types';
 
 export interface StudentFeatureBadges {
   pengumuman: number;
@@ -115,16 +115,11 @@ export function markSidebarMenuAsReadForUser(userId: string, menuId: string, db?
   }
 
   if (menuId === 'tugas-saya' || menuId === 'tugas') {
-    const myKelasId = currentUser.kelasId || '';
     const pengumpulan = (currentDb.pengumpulanTugas || []).filter((p) => p.muridId === userId);
     const submittedIds = new Set(pengumpulan.map((p) => p.tugasId));
     const pending = (currentDb.tugas || []).filter((t) => {
       if (t.status !== 'Publish' && t.status !== 'Aktif' && t.statusPublikasi !== 'Publish') return false;
-      if (t.kelasIds && t.kelasIds.length > 0) {
-        if (!t.kelasIds.includes(myKelasId)) return false;
-      } else if (t.kelasId && t.kelasId !== myKelasId) {
-        return false;
-      }
+      if (!isItemAssignedToStudentClass(t, currentUser, currentDb.kelas)) return false;
       return !submittedIds.has(t.id);
     });
     const ctx = `tugas_${pending.length}_${pending.map((t) => t.id).join('_')}`;
@@ -134,16 +129,11 @@ export function markSidebarMenuAsReadForUser(userId: string, menuId: string, db?
   }
 
   if (menuId === 'quiz-saya' || menuId === 'quiz') {
-    const myKelasId = currentUser.kelasId || '';
     const jwb = (currentDb.jawabanQuiz || []).filter((j) => j.muridId === userId);
     const doneIds = new Set(jwb.map((j) => j.quizId));
     const pending = (currentDb.quiz || []).filter((q) => {
       if (q.status !== 'Publish' && q.statusPublikasi !== 'Publish') return false;
-      if (q.kelasIds && q.kelasIds.length > 0) {
-        if (!q.kelasIds.includes(myKelasId)) return false;
-      } else if (q.kelasId && q.kelasId !== myKelasId) {
-        return false;
-      }
+      if (!isItemAssignedToStudentClass(q, currentUser, currentDb.kelas)) return false;
       return !doneIds.has(q.id);
     });
     const ctx = `quiz_${pending.length}_${pending.map((q) => q.id).join('_')}`;
@@ -406,16 +396,10 @@ export function calculateStudentFeatureBadges(
   const myId = currentUser.id;
   const myKelasId = currentUser.kelasId || '';
 
-  // 1. Pengumuman: unread count
+  // 1. Pengumuman: unread count strictly for student's class
   const unreadPengumumanList = (db.pengumuman || []).filter((p) => {
     if (p.targetRole && p.targetRole !== 'ALL' && p.targetRole !== 'MURID') return false;
-    if (p.targetKelasIds && p.targetKelasIds.length > 0) {
-      if (!p.targetKelasIds.includes('ALL') && myKelasId && !p.targetKelasIds.includes(myKelasId)) {
-        return false;
-      }
-    } else if (p.targetKelasId && p.targetKelasId !== 'ALL' && myKelasId && p.targetKelasId !== myKelasId) {
-      return false;
-    }
+    if (!isItemAssignedToStudentClass(p, currentUser, db.kelas)) return false;
     return !(p.dibacaOleh || []).includes(myId);
   });
   const unreadPengumuman = unreadPengumumanList.length;
@@ -425,15 +409,10 @@ export function calculateStudentFeatureBadges(
       ? unreadPengumuman
       : 0;
 
-  // 2. Materi Pembelajaran: materi aktif yang dipublish
+  // 2. Materi Pembelajaran: materi aktif strictly assigned to student's class
   const materiAktifList = (db.materi || []).filter((m) => {
-    if (m.status !== 'Publish') return false;
-    if (m.kelasIds && m.kelasIds.length > 0) {
-      return m.kelasIds.includes(myKelasId);
-    }
-    if (m.kelasId) {
-      return m.kelasId === myKelasId || m.kelasId === 'ALL';
-    }
+    if (m.status && m.status !== 'Publish') return false;
+    if (!isItemAssignedToStudentClass(m, currentUser, db.kelas)) return false;
     return true;
   });
   const materiAktif = materiAktifList.length;
@@ -443,17 +422,13 @@ export function calculateStudentFeatureBadges(
       ? materiAktif
       : 0;
 
-  // 3. Tugas: belum dikumpulkan
+  // 3. Tugas: belum dikumpulkan strictly assigned to student's class
   const pengumpulanSaya = (db.pengumpulanTugas || []).filter((p) => p.muridId === myId);
   const submittedTugasIds = new Set(pengumpulanSaya.map((p) => p.tugasId));
 
   const tugasBelumList = (db.tugas || []).filter((t) => {
     if (t.status !== 'Publish' && t.status !== 'Aktif' && t.statusPublikasi !== 'Publish') return false;
-    if (t.kelasIds && t.kelasIds.length > 0) {
-      if (!t.kelasIds.includes(myKelasId)) return false;
-    } else if (t.kelasId && t.kelasId !== myKelasId) {
-      return false;
-    }
+    if (!isItemAssignedToStudentClass(t, currentUser, db.kelas)) return false;
     return !submittedTugasIds.has(t.id);
   });
   const tugasBelum = tugasBelumList.length;
@@ -463,17 +438,13 @@ export function calculateStudentFeatureBadges(
       ? tugasBelum
       : 0;
 
-  // 4. Quiz: belum selesai dikerjakan
+  // 4. Quiz: belum selesai dikerjakan strictly assigned to student's class
   const jawabanQuizSaya = (db.jawabanQuiz || []).filter((j) => j.muridId === myId);
   const submittedQuizIds = new Set(jawabanQuizSaya.map((j) => j.quizId));
 
   const quizBelumList = (db.quiz || []).filter((q) => {
     if (q.status !== 'Publish' && q.statusPublikasi !== 'Publish') return false;
-    if (q.kelasIds && q.kelasIds.length > 0) {
-      if (!q.kelasIds.includes(myKelasId)) return false;
-    } else if (q.kelasId && q.kelasId !== myKelasId) {
-      return false;
-    }
+    if (!isItemAssignedToStudentClass(q, currentUser, db.kelas)) return false;
     return !submittedQuizIds.has(q.id);
   });
   const quizBelum = quizBelumList.length;
@@ -663,18 +634,11 @@ export function getLatestTeacherUpdates(
     }
   });
 
-  // 2. Pengumuman Terbaru dari Guru
+  // 2. Pengumuman Terbaru dari Guru strictly for student's class
   (db.pengumuman || [])
     .filter((p) => {
       if (p.targetRole && p.targetRole !== 'ALL' && p.targetRole !== 'MURID') return false;
-      if (p.targetKelasIds && p.targetKelasIds.length > 0) {
-        if (!p.targetKelasIds.includes('ALL') && myKelasId && !p.targetKelasIds.includes(myKelasId)) {
-          return false;
-        }
-      } else if (p.targetKelasId && p.targetKelasId !== 'ALL' && myKelasId && p.targetKelasId !== myKelasId) {
-        return false;
-      }
-      return true;
+      return isItemAssignedToStudentClass(p, currentUser, db.kelas);
     })
     .slice(0, 5)
     .forEach((p) => {

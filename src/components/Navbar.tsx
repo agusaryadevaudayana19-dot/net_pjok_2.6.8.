@@ -31,7 +31,7 @@ import {
   VolumeX,
   BellRing,
 } from 'lucide-react';
-import { User, UserRole, PengaturanSekolah, resolveKelasId, APP_VERSION_LABEL, NotifikasiItem } from '../types';
+import { User, UserRole, PengaturanSekolah, resolveKelasId, APP_VERSION_LABEL, NotifikasiItem, isItemAssignedToStudentClass } from '../types';
 import { dataStorage, LMSDatabase, FirestoreSyncStatus } from '../services/dataStorage';
 import { getStudentUrgentDeadlines } from '../utils/deadlineNotification';
 import { getStudentPendampinganStatus, getLatestTeacherUpdates, markSidebarMenuAsReadForUser, isSidebarMenuRead } from '../utils/studentNotificationHelper';
@@ -132,13 +132,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     }));
 
     if (currentUser.role === 'MURID') {
-      const myKelasId = currentUser.kelasId || '';
       const muridList = list.filter((n) => {
         if (n.targetRole && n.targetRole !== 'MURID' && n.targetRole !== 'ALL') return false;
         if (n.targetMuridId && n.targetMuridId !== currentUser.id) return false;
-        if (n.targetKelasId && n.targetKelasId !== 'ALL' && myKelasId && n.targetKelasId !== myKelasId) {
-          return false;
-        }
+        // Strict class check: student only receives notifications targeted to their class
+        if (!isItemAssignedToStudentClass(n, currentUser, db.kelas)) return false;
         return true;
       });
 

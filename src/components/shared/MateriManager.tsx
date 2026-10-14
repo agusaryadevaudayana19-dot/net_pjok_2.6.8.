@@ -27,6 +27,7 @@ import { UploadDataModal } from './UploadDataModal';
 import { FormattedMateriText } from './FormattedMateriText';
 import { AutoNumberedTextArea } from './AutoNumberedTextArea';
 import { EmojiPickerButton } from './EmojiPickerButton';
+import { KelasTargetSelector } from './KelasTargetSelector';
 import { processImageUpload } from '../../utils/imageUploadHelper';
 import {
   getMateriCategoryList,
@@ -141,9 +142,9 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
 
     const matchKelas =
       selectedKelasId === 'Semua' ||
-      !m.kelasIds ||
-      m.kelasIds.length === 0 ||
-      m.kelasIds.includes(selectedKelasId);
+      (Array.isArray(m.kelasIds) && m.kelasIds.length > 0
+        ? m.kelasIds.includes(selectedKelasId)
+        : m.kelasId === selectedKelasId || !m.kelasId);
 
     // If teacher, only show materials relevant to their assigned classes or general materials
     if (currentUser?.role === 'GURU') {
@@ -188,6 +189,11 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
 
   const handleOpenAdd = () => {
     setEditingMateri(null);
+    const initialClasses =
+      selectedKelasId && selectedKelasId !== 'Semua'
+        ? [selectedKelasId]
+        : availableClasses.map((k) => k.id);
+
     setForm({
       judul: '',
       subJudul: '',
@@ -198,7 +204,7 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
       deskripsi: '',
       materiInti: '',
       kolomKustom: [],
-      kelasIds: availableClasses.map((k) => k.id),
+      kelasIds: initialClasses,
       videoUrl: '',
       fileUrl: '',
       status: 'Publish',
@@ -216,8 +222,8 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
       kolomKustom: m.kolomKustom ? [...m.kolomKustom] : [],
       tujuanPembelajaran: m.tujuanPembelajaran || '',
       deskripsi: m.deskripsi || '',
-      materiInti: m.materiInti || m.kontenTeks || m.konten || '',
-      kelasIds: m.kelasIds || (m.kelasId ? [m.kelasId] : availableClasses.map((k) => k.id)),
+      materiInti: m.materiInti || m.kontenTeks || (m as any).konten || '',
+      kelasIds: m.kelasIds && m.kelasIds.length > 0 ? m.kelasIds : (m.kelasId ? [m.kelasId] : availableClasses.map((k) => k.id)),
     });
     setIsModalOpen(true);
   };
@@ -228,6 +234,17 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
       alert('Judul materi harus diisi');
       return;
     }
+
+    if (!form.kelasIds || form.kelasIds.length === 0) {
+      alert('Harap pilih minimal 1 target kelas / rombel untuk materi ini!');
+      return;
+    }
+
+    const selectedClassObjs = (db.kelas || []).filter((k) => form.kelasIds?.includes(k.id));
+    const selectedClassNames = selectedClassObjs.map((k) => k.nama);
+    const primaryKelasId = form.kelasIds[0] || '';
+    const primaryKelasNama = selectedClassNames.join(', ');
+    const isAllClasses = form.kelasIds.length === availableClasses.length;
 
     const materiIntiText = form.materiInti || '';
     const cleanKolomKustom = (form.kolomKustom || []).filter(
@@ -242,6 +259,9 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
             ? ({
                 ...m,
                 ...form,
+                kelasIds: form.kelasIds,
+                kelasId: primaryKelasId,
+                kelasNama: primaryKelasNama,
                 subJudul: form.topikSubMateri || form.subJudul || '',
                 topikSubMateri: form.topikSubMateri || form.subJudul || '',
                 gambarUrl: form.gambarUrl || '',
@@ -265,7 +285,9 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
           dibaca: false,
           targetRole: 'MURID',
           targetId: editingMateri.id,
-          targetKelasId: form.kelasIds && form.kelasIds.length === 1 ? form.kelasIds[0] : 'ALL',
+          targetKelasId: isAllClasses ? 'ALL' : (form.kelasIds.length === 1 ? form.kelasIds[0] : undefined),
+          targetKelasIds: isAllClasses ? ['ALL'] : form.kelasIds,
+          targetKelasNama: primaryKelasNama,
         };
         dataStorage.pushNotifikasi(notif);
       }
@@ -281,7 +303,9 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
         materiInti: materiIntiText,
         kontenTeks: materiIntiText,
         kolomKustom: cleanKolomKustom,
-        kelasIds: form.kelasIds && form.kelasIds.length > 0 ? form.kelasIds : availableClasses.map((k) => k.id),
+        kelasIds: form.kelasIds,
+        kelasId: primaryKelasId,
+        kelasNama: primaryKelasNama,
         status: form.status || 'Publish',
         videoUrl: form.videoUrl || '',
         fileUrl: form.fileUrl || '',
@@ -306,7 +330,9 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
           dibaca: false,
           targetRole: 'MURID',
           targetId: newM.id,
-          targetKelasId: newM.kelasIds && newM.kelasIds.length === 1 ? newM.kelasIds[0] : 'ALL',
+          targetKelasId: isAllClasses ? 'ALL' : (form.kelasIds.length === 1 ? form.kelasIds[0] : undefined),
+          targetKelasIds: isAllClasses ? ['ALL'] : form.kelasIds,
+          targetKelasNama: primaryKelasNama,
         };
         dataStorage.pushNotifikasi(notif);
       }
@@ -1033,32 +1059,14 @@ export const MateriManager: React.FC<MateriManagerProps> = ({ db, currentUser })
               </div>
 
               {/* Target Kelas Selection */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1.5">Target Kelas / Rombel</label>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 max-h-28 overflow-y-auto">
-                  {availableClasses.map((k) => {
-                    const isChecked = form.kelasIds?.includes(k.id) ?? false;
-                    return (
-                      <label key={k.id} className="flex items-center gap-1.5 cursor-pointer text-[11px]">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const cur = form.kelasIds || [];
-                            if (e.target.checked) {
-                              setForm({ ...form, kelasIds: [...cur, k.id] });
-                            } else {
-                              setForm({ ...form, kelasIds: cur.filter((id) => id !== k.id) });
-                            }
-                          }}
-                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <span className="font-semibold text-slate-700">Kelas {k.nama}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+              <KelasTargetSelector
+                availableClasses={availableClasses}
+                selectedClassIds={form.kelasIds || []}
+                onChange={(ids) => setForm({ ...form, kelasIds: ids })}
+                accentColor="emerald"
+                label="Target Kelas / Rombel Materi"
+                helperText="Centang rombel yang menerima modul ini. Murid dari rombel yang tidak dicentang tidak akan melihat materi ini."
+              />
 
               {/* 1. Capaian & Tujuan Pembelajaran (Paling di atas) */}
               <div className="p-3.5 bg-emerald-50/50 rounded-2xl border border-emerald-200/70 space-y-2 w-full max-w-full min-w-0">

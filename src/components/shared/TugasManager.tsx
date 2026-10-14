@@ -25,11 +25,12 @@ import {
   ListOrdered,
   HelpCircle,
 } from 'lucide-react';
-import { Tugas, PengumpulanTugas, User, SoalTugas, NotifikasiItem, getTeacherAssignedClasses } from '../../types';
+import { Tugas, PengumpulanTugas, User, SoalTugas, NotifikasiItem, getTeacherAssignedClasses, isItemAssignedToStudentClass } from '../../types';
 import { dataStorage, LMSDatabase } from '../../services/dataStorage';
 import { InAppMediaModal } from './InAppMediaModal';
 import { UploadDataModal } from './UploadDataModal';
 import { EmojiPickerButton } from './EmojiPickerButton';
+import { KelasTargetSelector } from './KelasTargetSelector';
 
 interface TugasManagerProps {
   db: LMSDatabase;
@@ -110,9 +111,9 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
 
     const matchKelas =
       selectedKelasId === 'Semua' ||
-      !t.kelasIds ||
-      t.kelasIds.length === 0 ||
-      t.kelasIds.includes(selectedKelasId);
+      (Array.isArray(t.kelasIds) && t.kelasIds.length > 0
+        ? t.kelasIds.includes(selectedKelasId)
+        : t.kelasId === selectedKelasId || !t.kelasId);
 
     // If teacher, only show tasks for their assigned classes or general
     if (currentUser?.role === 'GURU') {
@@ -196,6 +197,11 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
 
   const handleOpenAdd = () => {
     setEditingTugas(null);
+    const initialClasses =
+      selectedKelasId && selectedKelasId !== 'Semua'
+        ? [selectedKelasId]
+        : availableClasses.map((k) => k.id);
+
     setForm({
       judul: '',
       kategori: 'Praktik Gerak Mandiri',
@@ -211,7 +217,7 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
         },
       ],
       deadline: '2026-09-30T23:59',
-      kelasIds: availableClasses.map((k) => k.id),
+      kelasIds: initialClasses,
       status: 'Publish',
       statusPublikasi: 'Publish',
     });
@@ -239,7 +245,7 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
       ...t,
       jenisPengumpulan: t.jenisPengumpulan || 'JAWAB_LANGSUNG',
       daftarSoal: existingSoal,
-      kelasIds: t.kelasIds || (t.kelasId ? [t.kelasId] : availableClasses.map((k) => k.id)),
+      kelasIds: t.kelasIds && t.kelasIds.length > 0 ? t.kelasIds : (t.kelasId ? [t.kelasId] : availableClasses.map((k) => k.id)),
     });
     setIsModalOpen(true);
   };
@@ -284,6 +290,17 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
       return;
     }
 
+    if (!form.kelasIds || form.kelasIds.length === 0) {
+      alert('Harap pilih minimal 1 target kelas / rombel untuk tugas ini!');
+      return;
+    }
+
+    const selectedClassObjs = (db.kelas || []).filter((k) => form.kelasIds?.includes(k.id));
+    const selectedClassNames = selectedClassObjs.map((k) => k.nama);
+    const primaryKelasId = form.kelasIds[0] || '';
+    const primaryKelasNama = selectedClassNames.join(', ');
+    const isAllClasses = form.kelasIds.length === availableClasses.length;
+
     const finalStatus = form.status === 'Draft' || form.statusPublikasi === 'Draft' ? 'Draft' : 'Publish';
     const isJawabLangsung = form.jenisPengumpulan === 'JAWAB_LANGSUNG' || form.jenisPengumpulan === 'KEDUANYA' || !form.jenisPengumpulan;
 
@@ -316,6 +333,9 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
             ? ({
                 ...item,
                 ...form,
+                kelasIds: form.kelasIds,
+                kelasId: primaryKelasId,
+                kelasNama: primaryKelasNama,
                 daftarSoal: cleanedDaftarSoal,
                 jenisPengumpulan: form.jenisPengumpulan || 'JAWAB_LANGSUNG',
                 status: finalStatus as any,
@@ -335,7 +355,9 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
           dibaca: false,
           targetRole: 'MURID',
           targetId: editingTugas.id,
-          targetKelasId: form.kelasIds && form.kelasIds.length === 1 ? form.kelasIds[0] : 'ALL',
+          targetKelasId: isAllClasses ? 'ALL' : (form.kelasIds.length === 1 ? form.kelasIds[0] : undefined),
+          targetKelasIds: isAllClasses ? ['ALL'] : form.kelasIds,
+          targetKelasNama: primaryKelasNama,
         };
         dataStorage.pushNotifikasi(notif);
       }
@@ -349,7 +371,9 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
         daftarSoal: cleanedDaftarSoal,
         jenisPengumpulan: form.jenisPengumpulan || 'JAWAB_LANGSUNG',
         deadline: form.deadline || '2026-09-30T23:59',
-        kelasIds: form.kelasIds && form.kelasIds.length > 0 ? form.kelasIds : availableClasses.map((k) => k.id),
+        kelasIds: form.kelasIds,
+        kelasId: primaryKelasId,
+        kelasNama: primaryKelasNama,
         status: finalStatus,
         statusPublikasi: finalStatus,
         dibuatOleh: currentUser.name,
@@ -371,7 +395,9 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
           dibaca: false,
           targetRole: 'MURID',
           targetId: newT.id,
-          targetKelasId: newT.kelasIds && newT.kelasIds.length === 1 ? newT.kelasIds[0] : 'ALL',
+          targetKelasId: isAllClasses ? 'ALL' : (form.kelasIds.length === 1 ? form.kelasIds[0] : undefined),
+          targetKelasIds: isAllClasses ? ['ALL'] : form.kelasIds,
+          targetKelasNama: primaryKelasNama,
         };
         dataStorage.pushNotifikasi(notif);
       }
@@ -1330,32 +1356,14 @@ export const TugasManager: React.FC<TugasManagerProps> = ({ db, currentUser }) =
               </div>
 
               {/* Target Kelas Selection */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1.5">Target Kelas / Rombel</label>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 max-h-32 overflow-y-auto">
-                  {availableClasses.map((k) => {
-                    const isChecked = form.kelasIds?.includes(k.id) ?? false;
-                    return (
-                      <label key={k.id} className="flex items-center gap-1.5 cursor-pointer text-[11px]">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const cur = form.kelasIds || [];
-                            if (e.target.checked) {
-                              setForm({ ...form, kelasIds: [...cur, k.id] });
-                            } else {
-                              setForm({ ...form, kelasIds: cur.filter((id) => id !== k.id) });
-                            }
-                          }}
-                          className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                        />
-                        <span className="font-semibold text-slate-700">{k.nama}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+              <KelasTargetSelector
+                availableClasses={availableClasses}
+                selectedClassIds={form.kelasIds || []}
+                onChange={(ids) => setForm({ ...form, kelasIds: ids })}
+                accentColor="sky"
+                label="Target Kelas / Rombel Tugas"
+                helperText="Centang rombel yang ditugaskan. Murid dari rombel yang tidak dicentang tidak akan melihat tugas ini."
+              />
 
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
